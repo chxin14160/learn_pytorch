@@ -82,20 +82,31 @@ agg_item = agg.item()   # 将标量张量agg转成Python的基本数据类型（
 print(agg_item, type(agg_item))
 
 
+# 使用 in-place 操作对张量中的每个元素加 5
 print(f"{tensor} \n")
-tensor.add_(5)
+tensor.add_(5)  # add_ 是 in-place 操作，会直接修改原张量
 print(tensor)
 
 
-t = torch.ones(5)
+
+t = torch.ones(5)   # 创建一个包含 5 个 1.0 的张量
 print(f"t: {t}")
-n = t.numpy()
+
+# 将张量 t 转换为 NumPy 数组
+n = t.numpy()       # .numpy() 方法将 PyTorch 张量转换为 NumPy 数组
 print(f"n: {n}")
 
-
-
-
-
-np.add(n, 1, out=n)
+t.add_(1)           # 使用 add_ 进行原地加法
 print(f"t: {t}")
+print(f"n: {n}")    # n 的值也会改变，因为 t 和 n 共享内存
+
+
+
+n = np.ones(5)          # 创建一个包含 5 个 1.0 的 NumPy 数组
+t = torch.from_numpy(n) # 将 NumPy 数组转换为 PyTorch 张量
+print(f"t: {t}")
+print(f"n: {n}")
+
+np.add(n, 5, out=n)     # 对 NumPy 数组，使用 out 参数 进行原地加法操作
+print(f"t: {t}")        # 由于 t 和 n 底层共享内存，t 的值也会随之改变
 print(f"n: {n}")
