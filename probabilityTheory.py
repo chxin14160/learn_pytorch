@@ -60,6 +60,7 @@ print(f"\n每个元素皆为【累计到当前试验，某个面的总出现概�
 plt.figure(figsize=(6, 4.5))
 
 # 绘制每个面的估计概率
+# 总共6列6个面6条线，转换后每列变成：x是行数即第几次试验，y是累计到当前试验的面出现概率
 for i in range(6):
     plt.plot(estimates[:, i].numpy(), label=("P(die=" + str(i + 1) + ")"))
     # plt.plot(estimates[:, i].numpy(), label=("P(die=" + str(i + 1) + ")"))
@@ -67,10 +68,10 @@ for i in range(6):
     # .numpy() 将张量转换为NumPy数组，以便使用Matplotlib进行绘图
 
 # 绘制理论概率的虚线
-plt.axhline(y=1/6, color='black', linestyle='dashed')
+plt.axhline(y=1/6, color='black', linestyle='dashed') # 在y=1/6处绘制，黑色，虚线
 plt.xlabel('Groups of experiments') # x轴标签：试验组
 plt.ylabel('Estimated probability') # y轴标签：估计概率
-plt.legend()    # 显示图例
-plt.show()      # 显示图形
+plt.legend()    # 为图表添加图例
+plt.show()      # 显示图表（显示在屏幕上）
 
 
