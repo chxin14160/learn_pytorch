@@ -53,6 +53,7 @@ import random
 
 
 ''' 线性回归的从零开始实现 开始 '''
+# 生成数据
 # 数据集中有1000个样本，每个样本包含从标准正态分布中采样的2个特征
 '''
 # 生成 ”符合线性关系 y=Xw+b+噪声“ 的合成数据集
@@ -64,18 +65,73 @@ def synthetic_data(w, b, num_examples):  #@save
     """生成y=Xw+b+噪声"""
     # 生成一个形状为 (num_examples, len(w)) 的矩阵,每个元素从均值为0、标准差为1的正态分布中随机采样
     X = torch.normal(0, 1, (num_examples, len(w)))
+    print(f"X的形状{X.shape}")
     y = torch.matmul(X, w) + b          # 计算线性部分 Xw + b
-    y += torch.normal(0, 0.01, y.shape) # 计算线性部分 Xw + b
-    return X, y.reshape((-1, 1))        # 返回特征矩阵X和标签向量y，返回特征矩阵X和标签向量y
+    y += torch.normal(0, 0.01, y.shape) # 添加噪声（均值为0，标准差为0.01的正态分布）使数据更接近真实场景（避免完全线性可分）
+    return X, y.reshape((-1, 1))        # 返回特征矩阵X和标签向量y, y.reshape((-1, 1)) 确保y是列向量（形状为 (num_examples, 1)）
 
 # 定义真实的权重 w = [2, -3.4] 和偏置 b = 4.2
 true_w = torch.tensor([2, -3.4])
 true_b = 4.2
 
-# features: 形状为 (1000, 2) 的矩阵
-# labels: 形状为 (1000, 1) 的向量
+# features: 形状为 (1000, 2) 的矩阵，每行皆包含一个二维数据样本
+# labels: 形状为 (1000, 1) 的向量，每行皆包含一维数据标签值(一个标量)
+# 标签由线性关系 y = 2*x1 - 3.4*x2 + 4.2 + 噪声 生成
 features, labels = synthetic_data(true_w, true_b, 1000) # 生成1000个样本
 print('features:', features[0],'\nlabel:', labels[0])
+
+# 注意：由于有两个特征，完整的可视化需要3D图或两个2D子图。
+# 生成第二个特征features[:, 1]和labels的散点图，直观观察两者之间的线性关系
+# 假设只看第二个特征和标签的关系（忽略第一个特征）
+plt.scatter(features[:, 1].numpy(), labels.numpy(), 1)
+# features[:, 1].numpy(): 提取所有样本的第二个特征（x2）并将其转换为 NumPy 数组以便绘图
+# labels.numpy(): 将标签转换为 NumPy 数组
+# plt.scatter: 绘制散点图，其中 1 是点的大小（可以根据需要调整）
+plt.xlabel('x2')
+plt.ylabel('y')
+plt.show()
+
+'''
+from mpl_toolkits.mplot3d import Axes3D
+# 绘制3D图
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+ax.scatter(features[:, 0].numpy(), features[:, 1].numpy(), labels.numpy())
+ax.set_xlabel('x1')
+ax.set_ylabel('x2')
+ax.set_zlabel('y')
+plt.title('3D Scatter plot of x1, x2 vs y')
+plt.show()
+'''
+
+
+# 读取数据
+'''
+打乱数据集 中的样本并以小批量方式获取数据，用于训练
+输入:
+批量大小 batch_size
+特征矩阵 features
+标签向量 labels
+生成大小为batch_size的小批量
+'''
+def data_iter(batch_size, features, labels):
+    num_examples = len(features)        # 特征矩阵中的样本数量
+    indices = list(range(num_examples)) # 生成索引列表，从 0 到 num_examples - 1
+    # 这些样本是随机读取的，没有特定的顺序
+    random.shuffle(indices)             # 随机打乱索引列表，以便在每个 epoch 中以随机顺序访问数据
+    for i in range(0, num_examples, batch_size):            # 从 0 开始，以 batch_size 为步长，遍历整个数据集
+        batch_indices = np.array(                           # batch_indices 是 NumPy 数组，包含当前小批量的索引
+            indices[i: min(i + batch_size, num_examples)])  # min(i + batch_size, num_examples) 确保最后一个批次不会超出数据集的范围
+        yield features[batch_indices], labels[batch_indices]    # yield 关键字用于生成一个小批量的特征和标签，每次调用 next() 或在 for 循环中迭代时，生成器会返回一个批次的数据
+
+batch_size = 10
+# 读取第一个小批量数据样本并打印
+for X, y in data_iter(batch_size, features, labels):
+    print(X, '\n', y) # 每个批量的特征维度显示 批量大小和输入特征数。批量的标签形状同batch_size
+    break
+
+
+
 
 ''' 线性回归的从零开始实现 结束 '''
 
