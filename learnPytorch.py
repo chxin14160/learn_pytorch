@@ -5,12 +5,15 @@ from torchvision import datasets
 from torchvision.transforms import ToTensor
 
 
+# 通过ToTensor实例将图像数据从PIL类型变换成32位浮点数格式，
+# 并除以255使得所有像素的数值均在0～1之间
+
 # Download training data from open datasets.
 training_data = datasets.FashionMNIST(
     root="data",  # 数据集存储的位置
     train=True,  # 加载训练集（True则加载训练集）
     download=True,  # 如果数据集在指定目录中不存在，则下载（True才会下载）
-    transform=ToTensor(),  # 应用于图像的转换列表，例如转换为张量和归一化
+    transform=ToTensor(),  # (使用什么格式转换,这里是对图片进行预处理，转换为tensor格式) 应用于图像的转换列表，例如转换为张量和归一化
 )
 
 # Download test data from open datasets.
@@ -21,14 +24,17 @@ test_data = datasets.FashionMNIST(
     transform=ToTensor(),
 )
 
+# 输出训练集和测试集的大小
+print(f"\n训练集大小：{len(training_data)}, \n测试集的大小：{len(test_data)}")
+print(f"索引到第一张图片，查看输入图像的通道数、高度和宽度：{training_data[0][0].shape}")
 
 
 batch_size = 64
 
 # Create data loaders.
 # DataLoader()：batch_size每个批次的大小，shuffle=True则打乱数据
-train_dataloader = DataLoader(training_data, batch_size=batch_size)
-test_dataloader = DataLoader(test_data, batch_size=batch_size)
+train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
 
 for X, y in test_dataloader:  # 遍历训练数据加载器，x相当于图片，y相当于标签
     print(f"Shape of X [N, C, H, W]: {X.shape}")
