@@ -117,6 +117,25 @@ def visual_ActivationFunction():
 ''' 多层感知机的从零开始实现 开始 '''
 batch_size = 256
 
+# 输入层有748个输入(28×28的图像展平)，输出层有10个输出(10个类别)，隐藏层256个神经元
+num_inputs, num_outputs, num_hiddens = 784, 10, 256
+
+# 定义参数w1，w2，b1，b2（权重与偏置初始化），皆需计算梯度
+# w1，w2为满足标准正态分布的随机数字，[*0.01进行缩放是因为小随机数有助于训练稳定(打破对称性)]
+# 偏置初始化为 0
+# 使用nn.Parameter包装以便PyTorch跟踪梯度
+W1 = nn.Parameter(torch.randn(
+    num_inputs, num_hiddens, requires_grad=True) * 0.01)
+b1 = nn.Parameter(torch.zeros(num_hiddens, requires_grad=True))
+
+W2 = nn.Parameter(torch.randn(
+    num_hiddens, num_outputs, requires_grad=True) * 0.01)
+b2 = nn.Parameter(torch.zeros(num_outputs, requires_grad=True))
+
+params = [W1, b1, W2, b2] # 所有可训练参数放在一个列表中，便于后续操作（如传递给优化器）
+
+
+
 ''' 多层感知机的从零开始实现 结束 '''
 
 
