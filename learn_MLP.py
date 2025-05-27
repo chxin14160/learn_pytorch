@@ -221,6 +221,9 @@ def train(train_features, test_features, train_labels, test_labels,
     animator.close()  # 最后记得关闭图形
     print('训练后的模型权重（即多项式回归的系数）weight:\n', net[0].weight.data.numpy())
 
+# poly_features[:n_train, :4], 前4列，前100行是训练集数据
+# poly_features[n_train:, :4], 前4列，后100行是测试集数据
+
 # 从多项式特征中选择前4个维度，即1,x,x^2/2!,x^3/3!
 train(poly_features[:n_train, :4], poly_features[n_train:, :4],
       labels[:n_train], labels[n_train:])
