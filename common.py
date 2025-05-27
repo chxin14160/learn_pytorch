@@ -1,6 +1,69 @@
 import time
 import numpy as np
+from IPython import display
+from torch.utils.data import DataLoader, TensorDataset
+import torch
 
+# import matplotlib
+# # 强制使用 TkAgg 或 Qt5Agg 后端 (使用独立后端渲染)
+# matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
+# # matplotlib.use('Qt5Agg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
+import matplotlib.pyplot as plt
+
+
+# import matplotlib
+# matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
+
+
+
+def load_array(data_arrays, batch_size, is_train=True):
+    dataset = TensorDataset(*data_arrays)
+    return DataLoader(dataset, batch_size, shuffle=is_train)
+
+
+def accuracy(y_hat, y):  # @save
+    """计算预测正确的数量"""
+    # len是查看矩阵的行数
+    # y_hat.shape[1]就是取列数
+    if len(y_hat.shape) > 1 and y_hat.shape[1] > 1:
+        # 第2个维度为预测标签，取最大元素
+        y_hat = y_hat.argmax(axis=1)  # 变成一列，列中每行元素为 行里的最大值下标
+
+    # 将y_hat转换为y的数据类型然后作比较，cmp函数存储bool类型
+    cmp = y_hat.type(y.dtype) == y
+    return float(cmp.type(y.dtype).sum())  # 将正确预测的数量相加
+
+
+def train_epoch_ch3(net, train_iter, loss, updater):  # @save
+    """训练模型一个迭代周期（定义见第3章）"""
+    # 判断net模型是否为深度学习类型，将模型设置为训练模式
+    if isinstance(net, torch.nn.Module):
+        net.train()  # 要计算梯度，启用训练模式（启用Dropout/BatchNorm等训练专用层）
+
+    # Accumulator(3)创建3个变量：训练损失总和、训练准确度总和、样本数
+    metric = Accumulator(3)  # 用于跟踪训练损失、准确率和样本数
+    for X, y in train_iter:
+        # 计算梯度并更新参数
+        y_hat = net(X)  # 前向传播：模型预测
+        l = loss(y_hat, y)  # 计算损失（向量形式，每个样本一个损失值）
+
+        # 判断updater是否为优化器
+        if isinstance(updater, torch.optim.Optimizer):  # 使用PyTorch内置优化器
+            # 使用PyTorch内置的优化器和损失函数
+            updater.zero_grad()  # 把梯度设置为0（清除之前的梯度，避免梯度累加）
+            l.mean().backward()  # 计算梯度（反向传播：计算梯度(对损失取平均)）l.mean()表示对批次损失取平均后再求梯度
+            updater.step()  # 自更新（根据梯度更新模型参数）
+        else:  # 使用自定义更新逻辑
+            # 使用定制的优化器和损失函数
+            # 自我实现的话，l出来是向量，先求和再求梯度
+            l.sum().backward()
+            updater(X.shape[0])
+        metric.add(float(l.sum()), accuracy(y_hat, y), y.numel())
+    # 返回训练损失(平均损失)和训练精度，metric的值由Accumulator得到
+    return metric[0] / metric[2], metric[1] / metric[2]
+
+
+# 计时器
 class Timer:  # @save
     """记录多次运行时间"""
     def __init__(self):
@@ -27,6 +90,96 @@ class Timer:  # @save
     def cumsum(self):
         """返回累计时间"""
         return np.array(self.times).cumsum().tolist()
+
+
+# 实用程序类，示例中创建两个变量：正确预测的数量 和 预测总数
+class Accumulator:  # @save
+    """在n个变量上累加"""
+    def __init__(self, n): # 初始化根据传进来n的大小来创建n个空间，全部初始化为0.0
+        self.data = [0.0] * n
+
+    # 把原来类中对应位置的data和新传入的args做a + float(b)加法操作然后重新赋给该位置的data，从而达到累加器的累加效果
+    def add(self, *args):
+        self.data = [a + float(b) for a, b in zip(self.data, args)]
+
+    # 重新设置空间大小并初始化。
+    def reset(self):
+        self.data = [0.0] * len(self.data)
+
+    # 实现类似数组的取操作
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+
+# 实用程序类，动画绘制器，动态绘制数据
+class Animator:  # @save
+    """在动画中绘制数据"""
+    def __init__(self, xlabel=None, ylabel=None, legend=None, xlim=None,
+                 ylim=None, xscale='linear', yscale='linear',
+                 fmts=('-', 'm--', 'g-.', 'r:'), nrows=1, ncols=1,
+                 figsize=(3.5, 2.5)):
+        # 增量地绘制多条线
+        if legend is None:
+            legend = []
+        # 创建图形和坐标轴
+        self.fig, self.axes = plt.subplots(nrows, ncols, figsize=figsize)
+        if nrows * ncols == 1:
+            self.axes = [self.axes, ]  # 确保axes是列表形式（即使只有1个子图）
+        # 设置坐标轴配置的函数
+        def set_axes(ax, xlabel, ylabel, xlim, ylim, xscale, yscale, legend):
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
+            if xlim:
+                ax.set_xlim(xlim)
+            if ylim:
+                ax.set_ylim(ylim)
+            ax.set_xscale(xscale)
+            ax.set_yscale(yscale)
+            if legend:
+                ax.legend(legend)
+            ax.grid()
+        # 使用lambda函数捕获参数
+        self.config_axes = lambda: [set_axes(ax, xlabel, ylabel, xlim, ylim,
+                                             xscale, yscale, legend) for ax in self.axes]
+        self.X, self.Y, self.fmts = None, None, fmts
+        plt.ion()  # 开启交互模式，使图形可以实时更新
+
+    def add(self, x, y):
+        # 向图表中添加多个数据点
+        # x: x值或x值列表
+        # y: y值或y值列表
+        # hasattr(y, "__len__")：检查 y 是否为多值（如列表或数组）
+        if not hasattr(y, "__len__"):
+            y = [y]  # 如果y不是列表/数组，转换为单元素列表
+        n = len(y)
+        if not hasattr(x, "__len__"):
+            x = [x] * n  # 如果x是标量，扩展为与y长度相同的列表
+        if not self.X:
+            self.X = [[] for _ in range(n)]  # 初始化n条曲线的x数据存储
+        if not self.Y:
+            self.Y = [[] for _ in range(n)]  # 初始化n条曲线的y数据存储
+        for i, (a, b) in enumerate(zip(x, y)):
+            if a is not None and b is not None:
+                self.X[i].append(a)  # 添加x数据
+                self.Y[i].append(b)  # 添加y数据
+        for ax in self.axes: # 清除并重新绘制所有子图
+            ax.cla()
+        for x, y, fmt in zip(self.X, self.Y, self.fmts):
+            for ax in self.axes:
+                ax.plot(x, y, fmt) # 重新绘制所有曲线
+
+        self.config_axes()
+        self.fig.canvas.draw()  # 更新画布
+        self.fig.canvas.flush_events()  # 刷新事件
+        time.sleep(0.1)  # 添加短暂延迟以模拟动画效果
+
+    def close(self):
+        """关闭图形"""
+        plt.ioff()  # 关闭交互模式
+        plt.close(self.fig)
+
+
+
 
 
 
