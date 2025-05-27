@@ -172,6 +172,7 @@ class Animator:  # @save
         self.fig.canvas.draw()  # 更新画布
         self.fig.canvas.flush_events()  # 刷新事件
         time.sleep(0.1)  # 添加短暂延迟以模拟动画效果
+        plt.show() # pycharm社区版没有科学模块，通过在循环里show来实现动画效果
 
     def close(self):
         """关闭图形"""
