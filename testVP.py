@@ -1,12 +1,14 @@
 import open3d as o3d
 import numpy as np
 
+
 # points_data = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/vp/11pnts.txt", delimiter=",", dtype=np.float32)
-points_data = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/vp/11pnts.txt", delimiter=",")
+points_data = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/vpc/11pnts.txt", delimiter=",")
 print('shape: ', points_data.shape)
 print('data type: ', points_data.dtype)
 
-points_data[:,2] = points_data[:,2] * 21 # 将所有行的第三列乘以 21
+points_data[:,2] = points_data[:,2] * 36 # 将所有行的第三列乘以 21
+points_data[:,0] = points_data[:,0] * 4
 
 # points_data = np.random.rand(100, 3)  # 示例数据：100 个随机 3D 点
 colors_data = np.random.rand(100, 3)  # 100 个随机 RGB 颜色数组
@@ -14,7 +16,7 @@ colors_data = np.random.rand(100, 3)  # 100 个随机 RGB 颜色数组
 pcd = o3d.geometry.PointCloud() # 创建一个空的点云对象
 pcd.points = o3d.utility.Vector3dVector(points_data[:, :3]) # 从NumPy数组points_data中分配3D点（取前3列作为 x,y,z 坐标）
 pcd.colors = o3d.utility.Vector3dVector(colors_data)  # 分配颜色信息
-o3d.visualization.draw_geometries([pcd]) # 可视化点云
+# o3d.visualization.draw_geometries([pcd]) # 可视化点云
 
 
 # # 创建alpha shape并进行mesh化
@@ -23,3 +25,35 @@ o3d.visualization.draw_geometries([pcd]) # 可视化点云
 #
 # # 可视化网格化后的结果
 # o3d.visualization.draw_geometries([mesh], window_name="网格化结果")
+
+
+space = 2500
+pnts_r = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/vpr/11pnts.txt", delimiter=",")
+pnts_r[:,2] = pnts_r[:,2] * 36 # 将所有行的第三列乘以 21
+pnts_r[:,1] = pnts_r[:,1] + space
+pnts_r[:,0] = pnts_r[:,0] * 4
+pnts_d = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/vpd/11pnts.txt", delimiter=",")
+pnts_d[:,2] = pnts_d[:,2] * 36 # 将所有行的第三列乘以 21
+pnts_d[:,1] = pnts_d[:,1] + space*2
+pnts_d[:,0] = pnts_d[:,0] * 2
+pnts_s = np.loadtxt("E:/vsproject/勋仪交接/标克艾芬达暖水管/测量主管尺寸/散热片划痕/11pnts.txt", delimiter=",")
+pnts_s[:,2] = pnts_s[:,2] * 16 # 将所有行的第三列乘以 21
+pnts_s[:,1] = pnts_s[:,1] + space*3
+pnts_s[:,0] = pnts_s[:,0] * 2
+
+def get_pcd(points_data):
+    pcd = o3d.geometry.PointCloud()  # 创建一个空的点云对象
+    pcd.points = o3d.utility.Vector3dVector(points_data[:, :3])  # 从NumPy数组points_data中分配3D点（取前3列作为 x,y,z 坐标）
+    pcd.colors = o3d.utility.Vector3dVector(colors_data)  # 分配颜色信息
+    return pcd
+
+pcd_r = get_pcd(pnts_r)
+pcd_d = get_pcd(pnts_d)
+pcd_s = get_pcd(pnts_s)
+o3d.visualization.draw_geometries([pcd_r,pcd_d,pcd_s]) # 可视化点云
+
+
+
+
+
+
