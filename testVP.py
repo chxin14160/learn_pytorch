@@ -28,8 +28,8 @@ statistical_outlier_removed = down_pcd.select_by_index(ind)
 print("统计离群点移除后的点云数量:", len(np.asarray(statistical_outlier_removed.points)))
 
 # 半径离群点移除
-# cl, ind = statistical_outlier_removed.remove_radius_outlier(nb_points=16, radius=0.05)
 cl, ind = statistical_outlier_removed.remove_radius_outlier(nb_points=16, radius=0.05)
+# cl, ind = statistical_outlier_removed.remove_radius_outlier(nb_points=6, radius=11)
 radius_outlier_removed = statistical_outlier_removed.select_by_index(ind)
 print("半径离群点移除后的点云数量:", len(np.asarray(radius_outlier_removed.points)))
 
