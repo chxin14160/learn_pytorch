@@ -15,6 +15,23 @@ import matplotlib.pyplot as plt
 # matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
 
 
+'''（与 线性神经网络 的一样）
+# 生成 “符合线性关系 y=Xw+b+噪声” 的合成数据集
+# w: 权重向量（决定线性关系的斜率）
+# b: 偏置项（决定线性关系的截距）
+# num_examples: 要生成的样本数量
+在指定正态分布中随机生成特征矩阵X，
+然后根据传入的权重和偏置再加上随机生成的噪声计算得到标签向量y。
+'''
+def synthetic_data(w, b, num_examples):  # @save
+    """生成y=Xw+b+噪声"""
+    # 生成一个形状为 (num_examples, len(w)) 的矩阵,每个元素从均值为0、标准差为1的正态分布中随机采样
+    X = torch.normal(0, 1, (num_examples, len(w)))
+    print(f"X的形状{X.shape}")
+    y = torch.matmul(X, w) + b  # 计算线性部分 Xw + b
+    y += torch.normal(0, 0.01, y.shape)  # 添加噪声（均值为0，标准差为0.01的正态分布）使数据更接近真实场景（避免完全线性可分）
+    return X, y.reshape((-1, 1))  # 返回特征矩阵X和标签向量y, y.reshape((-1, 1)) 确保y是列向量（形状为 (num_examples, 1)）
+
 
 def load_array(data_arrays, batch_size, is_train=True):
     dataset = TensorDataset(*data_arrays)
