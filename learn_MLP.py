@@ -337,7 +337,90 @@ def train_concise(wd): # wd: 权重衰减（weight decay）系数，相当于L2�
 ''' 权重衰减 结束 '''
 
 
+''' 暂退法Dropout 开始 '''
+def dropout_layer(X, dropout): # 实现随机失活层 Dropout层
+    assert 0 <= dropout <= 1 # 确保dropout在合理范围内，若非，程序会抛出AssertionError，防止非法输入
+    # 在本情况中，所有元素都被丢弃
+    if dropout == 1:
+        return torch.zeros_like(X) # 直接返回一个与输入X形状相同的全零张量
+    # 在本情况中，所有元素都被保留
+    if dropout == 0:
+        return X
+    # 随机生成掩码，并根据掩码对输入X进行部分置零（丢弃部分神经元）
+    # (torch.rand(X.shape) > dropout)：生成一个布尔掩码，
+    # 其中每个元素以dropout的概率为False（被丢弃），以1 - dropout的概率为True（被保留）
+    # .float()：将布尔掩码转换为浮点数掩码（True为1.0，False为0.0）
+    mask = (torch.rand(X.shape) > dropout).float()
+    # mask * X：将掩码应用到输入X上，被丢弃的神经元（对应掩码为0）输出为0，保留的神经元（对应掩码为1）输出原始值
+    # / (1.0 - dropout)：对保留的神经元输出值进行缩放，确保输出的期望值与未应用Dropout时一致
+    return mask * X / (1.0 - dropout)
 
+# 测试Dropout层
+X= torch.arange(16, dtype = torch.float32).reshape((2, 8))
+print(X)
+print(f"不丢弃任何元素，返回原始输入：\n{dropout_layer(X, 0.)}")
+print(f"随机丢弃约50%的元素：\n{dropout_layer(X, 0.5)}")
+print(f"丢弃所有元素，返回全零张量：\n{dropout_layer(X, 1.)}")
+
+# 输入/输出层的神经元数量，第一和第二个隐藏层的神经元数量
+num_inputs, num_outputs, num_hiddens1, num_hiddens2 = 784, 10, 256, 256
+dropout1, dropout2 = 0.2, 0.5 # 两个失活概率，第一个隐藏层后丢弃20%的神经元
+
+# 输入层 → 第一个隐藏层（ReLU激活） → Dropout → 第二个隐藏层（ReLU激活） → Dropout → 输出层
+class Net(nn.Module):
+    def __init__(self, num_inputs, num_outputs, num_hiddens1, num_hiddens2,
+                 is_training=True):
+        super(Net, self).__init__() # 调用父类nn.Module的初始化方法
+        self.num_inputs = num_inputs
+        self.training = is_training # 表示网络是否处于训练模式（默认为True）
+        self.lin1 = nn.Linear(num_inputs, num_hiddens1)     # 第一层隐藏层
+        self.lin2 = nn.Linear(num_hiddens1, num_hiddens2)   # 第二层隐藏层
+        self.lin3 = nn.Linear(num_hiddens2, num_outputs)    # 输出层
+        self.relu = nn.ReLU()   # 定义ReLU激活函数，用于引入非线性
+
+    def forward(self, X): # 前向传播
+        # X.reshape((-1, self.num_inputs))：将输入X展平为形状为(batch_size, num_inputs)的张量
+        # -1是占位符，表示“自动计算这一维度的值”。PyTorch会根据 X 的总元素数量和 self.num_inputs 的值自动推断出 batch_size
+        # self.lin1(...)：通过第一个全连接层。
+        # self.relu(...)：应用ReLU激活函数
+        H1 = self.relu(self.lin1(X.reshape((-1, self.num_inputs))))
+        # 只有在训练模型时才使用dropout
+        if self.training == True: H1 = dropout_layer(H1, dropout1) # 在第一个全连接层后添加dropout层
+        H2 = self.relu(self.lin2(H1)) # 第二个全连接层
+        if self.training == True: H2 = dropout_layer(H2, dropout2) # 在第二个全连接层后添加dropout层
+        out = self.lin3(H2) # 输出层
+        return out
+
+net = Net(num_inputs, num_outputs, num_hiddens1, num_hiddens2) # 初始化网络
+
+num_epochs, lr, batch_size = 10, 0.5, 256       # 训练轮数，学习率，批次大小
+loss = nn.CrossEntropyLoss(reduction='none')    # 损失函数使用交叉熵，reduction='none'表示不对损失值进行求和或平均
+train_iter, test_iter = common.load_data_fashion_mnist(batch_size)
+trainer = torch.optim.SGD(net.parameters(), lr=lr)
+
+
+def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):  # @save
+    """训练模型（定义见第3章）"""
+    animator = common.Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0.3, 0.9],
+                        legend=['train loss', 'train acc', 'test acc'])
+
+    # num_epochs：训练次数
+    for epoch in range(num_epochs):
+        # train_epoch_ch3：训练模型，返回准确率和错误度
+        train_metrics = common.train_epoch_ch3(net, train_iter, loss, updater)
+
+        # 在测试数据集上评估精度
+        test_acc = common.evaluate_accuracy(net, test_iter)
+
+        animator.add(epoch + 1, train_metrics + (test_acc,))
+    train_loss, train_acc = train_metrics
+    assert train_loss < 0.5, train_loss
+    assert train_acc <= 1 and train_acc > 0.7, train_acc
+    assert test_acc <= 1 and test_acc > 0.7, test_acc
+
+train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
+
+''' 暂退法Dropout 结束 '''
 
 
 
