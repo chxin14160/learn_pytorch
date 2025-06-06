@@ -10,9 +10,38 @@ import torch
 # # matplotlib.use('Qt5Agg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
 import matplotlib.pyplot as plt
 
+from torchvision import datasets
+from torchvision.transforms import ToTensor
+
 
 # import matplotlib
 # matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
+
+
+def load_data_fashion_mnist(batch_size, resize=None):
+    # Download data from open datasets.
+    training_data = datasets.FashionMNIST(
+        root="data",  # 数据集存储的位置
+        train=True,  # 加载训练集（True则加载训练集）
+        download=True,  # 如果数据集在指定目录中不存在，则下载（True才会下载）
+        transform=ToTensor(),  # (使用什么格式转换,这里是对图片进行预处理，转换为tensor格式) 应用于图像的转换列表，例如转换为张量和归一化
+    )
+    test_data = datasets.FashionMNIST(
+        root="data",
+        train=False,  # 加载测试集（False则加载测试集）
+        download=True,
+        transform=ToTensor(),
+    )
+    # 输出训练集和测试集的大小
+    # print(f"\n训练集大小：{len(training_data)}, \n测试集的大小：{len(test_data)}")
+    # print(f"索引到第一张图片，查看输入图像的通道数、高度和宽度：{training_data[0][0].shape}")
+
+    # Create data loaders.
+    # DataLoader()：batch_size每个批次的大小，shuffle=True则打乱数据
+    train_dataloader = DataLoader(training_data, batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=True)
+    return train_dataloader, test_dataloader
+
 
 
 '''（与 线性神经网络 的一样）
@@ -78,6 +107,7 @@ def train_epoch_ch3(net, train_iter, loss, updater):  # @save
         metric.add(float(l.sum()), accuracy(y_hat, y), y.numel())
     # 返回训练损失(平均损失)和训练精度，metric的值由Accumulator得到
     return metric[0] / metric[2], metric[1] / metric[2]
+
 
 
 # 计时器
@@ -195,9 +225,6 @@ class Animator:  # @save
         """关闭图形"""
         plt.ioff()  # 关闭交互模式
         plt.close(self.fig)
-
-
-
 
 
 
