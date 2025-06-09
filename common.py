@@ -10,8 +10,7 @@ import torch
 # # matplotlib.use('Qt5Agg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
 import matplotlib.pyplot as plt
 
-from torchvision import datasets
-from torchvision.transforms import ToTensor
+from torchvision import datasets,transforms
 
 
 # import matplotlib
@@ -19,18 +18,23 @@ from torchvision.transforms import ToTensor
 
 
 def load_data_fashion_mnist(batch_size, resize=None):
+    trans = [transforms.ToTensor()] # 转换为tensor
+    if resize: trans.insert(0, transforms.Resize(resize))
+    trans = transforms.Compose(trans) # compose整合步骤
+
     # Download data from open datasets.
     training_data = datasets.FashionMNIST(
         root="data",  # 数据集存储的位置
         train=True,  # 加载训练集（True则加载训练集）
         download=True,  # 如果数据集在指定目录中不存在，则下载（True才会下载）
-        transform=ToTensor(),  # (使用什么格式转换,这里是对图片进行预处理，转换为tensor格式) 应用于图像的转换列表，例如转换为张量和归一化
+        transform=trans,  # (使用什么格式转换,这里是对图片进行预处理，转换为tensor格式) 应用于图像的转换列表，例如转换为张量和归一化
+        # transform=ToTensor(),  # (使用什么格式转换,这里是对图片进行预处理，转换为tensor格式) 应用于图像的转换列表，例如转换为张量和归一化
     )
     test_data = datasets.FashionMNIST(
         root="data",
         train=False,  # 加载测试集（False则加载测试集）
         download=True,
-        transform=ToTensor(),
+        transform=trans,
     )
     # 输出训练集和测试集的大小
     # print(f"\n训练集大小：{len(training_data)}, \n测试集的大小：{len(test_data)}")
@@ -79,6 +83,23 @@ def accuracy(y_hat, y):  # @save
     cmp = y_hat.type(y.dtype) == y
     return float(cmp.type(y.dtype).sum())  # 将正确预测的数量相加
 
+
+def evaluate_accuracy(net, data_iter):  # @save
+    """计算在指定数据集上模型的精度"""
+    if isinstance(net, torch.nn.Module):  # 判断模型是否为深度学习模型
+        net.eval()  # 将模型设置为评估模式
+
+    # Accumulator(2)创建2个变量：正确预测的样本数总和、样本数
+    metric = Accumulator(2)  # metric：度量，累加正确预测数、预测总数
+
+    with torch.no_grad():  # 梯度不需要反向传播
+        for X, y in data_iter:  # 每次从迭代器中拿出一个X和y
+            # net(X)：X放在net模型中进行softmax操作
+            # numel()函数：返回数组中元素的个数，在此可以求得样本数
+            metric.add(accuracy(net(X), y), y.numel())
+
+        # metric[0, 1]分别为网络预测正确数量和总预测数量
+    return metric[0] / metric[1]
 
 def train_epoch_ch3(net, train_iter, loss, updater):  # @save
     """训练模型一个迭代周期（定义见第3章）"""
