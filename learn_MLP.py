@@ -120,24 +120,70 @@ def visual_ActivationFunction():
 
 
 ''' 多层感知机的从零开始实现 开始 '''
-# batch_size = 256
-#
-# # 输入层有748个输入(28×28的图像展平)，输出层有10个输出(10个类别)，隐藏层256个神经元
-# num_inputs, num_outputs, num_hiddens = 784, 10, 256
-#
-# # 定义参数w1，w2，b1，b2（权重与偏置初始化），皆需计算梯度
-# # w1，w2为满足标准正态分布的随机数字，[*0.01进行缩放是因为小随机数有助于训练稳定(打破对称性)]
-# # 偏置初始化为 0
-# # 使用nn.Parameter包装以便PyTorch跟踪梯度
-# W1 = nn.Parameter(torch.randn(
-#     num_inputs, num_hiddens, requires_grad=True) * 0.01)
-# b1 = nn.Parameter(torch.zeros(num_hiddens, requires_grad=True))
-#
-# W2 = nn.Parameter(torch.randn(
-#     num_hiddens, num_outputs, requires_grad=True) * 0.01)
-# b2 = nn.Parameter(torch.zeros(num_outputs, requires_grad=True))
-#
-# params = [W1, b1, W2, b2] # 所有可训练参数放在一个列表中，便于后续操作（如传递给优化器）
+batch_size = 256
+
+# 返回训练集和测试集的迭代器
+# load_data_fashion_mnist函数是在图像分类数据集中定义的一个函数，可以返回batch_size大小的训练数据集和测试数据集
+train_iter, test_iter = common.load_data_fashion_mnist(batch_size)
+
+# 输入层有748个输入(28×28的图像展平)，输出层有10个输出(10个类别)，隐藏层256个神经元
+num_inputs, num_outputs, num_hiddens = 784, 10, 256
+
+# 定义参数w1，w2，b1，b2（权重与偏置初始化），皆需计算梯度
+# w1，w2为满足标准正态分布的随机数字，[*0.01进行缩放是因为小随机数有助于训练稳定(打破对称性)]
+# 偏置初始化为 0
+# 使用nn.Parameter包装以便PyTorch跟踪梯度
+W1 = nn.Parameter(torch.randn(
+    num_inputs, num_hiddens, requires_grad=True) * 0.01)
+b1 = nn.Parameter(torch.zeros(num_hiddens, requires_grad=True))
+
+W2 = nn.Parameter(torch.randn(
+    num_hiddens, num_outputs, requires_grad=True) * 0.01)
+b2 = nn.Parameter(torch.zeros(num_outputs, requires_grad=True))
+
+params = [W1, b1, W2, b2] # 所有可训练参数放在一个列表中，便于后续操作（如传递给优化器）
+
+def relu(X):
+    a = torch.zeros_like(X)
+    return torch.max(X, a)
+
+'''
+共3层：
+输入层：x,无需实现
+隐藏层：y=w1*x+b1
+隐藏层到输出层前，数据先经过激活函数
+隐藏层到输出层：y=w2x+b2
+'''
+def net(X):
+    X = X.reshape((-1, num_inputs))
+    H = relu(X@W1 + b1)  # 这里“@”代表矩阵乘法
+    return (H@W2 + b2)
+
+# reduction='none' 直接返回 n分样本的loss
+loss = nn.CrossEntropyLoss(reduction='none') # 创建一个交叉熵损失函数
+
+def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):  # @save
+    """训练模型（定义见第3章）"""
+    animator = common.Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0.3, 0.9],
+                        legend=['train loss', 'train acc', 'test acc'])
+
+    # num_epochs：训练次数
+    for epoch in range(num_epochs):
+        # train_epoch_ch3：训练模型，返回准确率和错误度
+        train_metrics = common.train_epoch_ch3(net, train_iter, loss, updater)
+
+        # 在测试数据集上评估精度
+        test_acc = common.evaluate_accuracy(net, test_iter)
+
+        animator.add(epoch + 1, train_metrics + (test_acc,))
+    train_loss, train_acc = train_metrics
+    assert train_loss < 0.5, train_loss
+    assert 1 >= train_acc > 0.7, train_acc # 简化链式比较
+    assert test_acc <= 1 and test_acc > 0.7, test_acc
+
+num_epochs, lr = 10, 0.1 # 迭代周期数设为10，学习率设为0.1。
+updater = torch.optim.SGD(params, lr=lr)
+# train_ch3(net, train_iter, test_iter, loss, num_epochs, updater)
 ''' 多层感知机的从零开始实现 结束 '''
 
 
@@ -366,7 +412,12 @@ print(f"丢弃所有元素，返回全零张量：\n{dropout_layer(X, 1.)}")
 num_inputs, num_outputs, num_hiddens1, num_hiddens2 = 784, 10, 256, 256
 dropout1, dropout2 = 0.2, 0.5 # 两个失活概率，第一个隐藏层后丢弃20%的神经元
 
-# 输入层 → 第一个隐藏层（ReLU激活） → Dropout → 第二个隐藏层（ReLU激活） → Dropout → 输出层
+# 输入层 →
+# 第一个隐藏层（ReLU激活） →
+# Dropout →
+# 第二个隐藏层（ReLU激活） →
+# Dropout →
+# 输出层
 class Net(nn.Module):
     def __init__(self, num_inputs, num_outputs, num_hiddens1, num_hiddens2,
                  is_training=True):
@@ -393,33 +444,47 @@ class Net(nn.Module):
 
 net = Net(num_inputs, num_outputs, num_hiddens1, num_hiddens2) # 初始化网络
 
+
 num_epochs, lr, batch_size = 10, 0.5, 256       # 训练轮数，学习率，批次大小
 loss = nn.CrossEntropyLoss(reduction='none')    # 损失函数使用交叉熵，reduction='none'表示不对损失值进行求和或平均
 train_iter, test_iter = common.load_data_fashion_mnist(batch_size)
 trainer = torch.optim.SGD(net.parameters(), lr=lr)
+# train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
 
 
-def train_ch3(net, train_iter, test_iter, loss, num_epochs, updater):  # @save
-    """训练模型（定义见第3章）"""
-    animator = common.Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0.3, 0.9],
-                        legend=['train loss', 'train acc', 'test acc'])
+# 暂退法Dropout的简洁实现
+# 与从零开始实现的模型结构一样：
+# 展平层 →
+# 第一层线性层 → relu激活 →
+# Dropout →
+# 第二层线性层 → relu激活 →
+# Dropout →
+# 输出层
+# nn.Sequential是一个容器，用于按顺序组合多个层。数据会依次通过这些层
+# nn.ReLU(): 激活函数，用于引入非线性
+net = nn.Sequential(nn.Flatten(),
+                    nn.Linear(784, 256),
+                    nn.ReLU(),
+                    # 在第一个全连接层之后添加一个dropout层
+                    nn.Dropout(dropout1),
+                    nn.Linear(256, 256),
+                    nn.ReLU(),
+                    # 在第二个全连接层之后添加一个dropout层
+                    nn.Dropout(dropout2),
+                    nn.Linear(256, 10))
 
-    # num_epochs：训练次数
-    for epoch in range(num_epochs):
-        # train_epoch_ch3：训练模型，返回准确率和错误度
-        train_metrics = common.train_epoch_ch3(net, train_iter, loss, updater)
+def init_weights(m): # 初始化模型权重
+    if type(m) == nn.Linear: # 只对全连接层做初始化参数
+        nn.init.normal_(m.weight, std=0.01) # 使用正态分布初始化权重（均值=0，标准差=0.01）
 
-        # 在测试数据集上评估精度
-        test_acc = common.evaluate_accuracy(net, test_iter)
+# 将init_weights应用于 net 中的每一个子模块。
+# apply 方法会递归地遍历整个网络，并对每个模块调用 init_weights 函数
+net.apply(init_weights) # 递归应用初始化函数到所有层
 
-        animator.add(epoch + 1, train_metrics + (test_acc,))
-    train_loss, train_acc = train_metrics
-    assert train_loss < 0.5, train_loss
-    assert train_acc <= 1 and train_acc > 0.7, train_acc
-    assert test_acc <= 1 and test_acc > 0.7, test_acc
-
+# torch.optim.SGD随机梯度下降优化器。SGD 是常用的优化算法，用于在训练过程中更新神经网络的参数，以最小化损失函数
+# net.parameters() 返回模型中所有可训练参数（权重和偏置）的生成器。这些参数将在训练过程中被优化器更新
+trainer = torch.optim.SGD(net.parameters(), lr=lr)
 train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
-
 ''' 暂退法Dropout 结束 '''
 
 
