@@ -1,4 +1,5 @@
 import torch
+from matplotlib.lines import lineStyles
 from torch import nn
 import common
 # import matplotlib
@@ -117,6 +118,34 @@ def visual_ActivationFunction():
     plt.show()
 
 # visual_ActivationFunction()
+
+
+# 验证 梯度消失
+def GradientVanishing():
+    x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
+    y = torch.sigmoid(x)
+    y.backward(torch.ones_like(x))
+    plt.figure(figsize=(4.5,2.5))
+    plt.plot(x.detach().numpy(),y.detach().numpy(),label='sigmoid')
+    plt.plot(x.detach().numpy(),x.grad.numpy(),linestyle='--',label='gradient')
+    plt.xlabel('x')
+    plt.ylabel('sigmoid')
+    plt.legend() # 添加图例(线的标签)
+    plt.grid()   # 启用网格线
+    plt.show()
+
+# 验证 梯度爆炸
+def GradientExplosion():
+    # 梯度爆炸
+    # 生成100个高斯随机矩阵，并将其于初始矩阵相乘
+    M = torch.normal(0, 1,size=(4,4)) # 从均值=0，标准差=1的正态分布中随机取数生成4*4的矩阵
+    print(f"初始矩阵：\n{M}")
+    for i in range(100):
+        M = torch.mm(M, torch.normal(0, 1, size=(4,4)))
+    print(f"乘以100个随机矩阵后\n{M}")
+
+# GradientVanishing()
+# GradientExplosion()
 
 
 ''' 多层感知机的从零开始实现 开始 '''
