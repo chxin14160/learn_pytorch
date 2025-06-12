@@ -124,7 +124,7 @@ def visual_ActivationFunction():
 def GradientVanishing():
     x = torch.arange(-8.0, 8.0, 0.1, requires_grad=True)
     y = torch.sigmoid(x)
-    y.backward(torch.ones_like(x))
+    y.backward(torch.ones_like(x)) # 用于触发反向传播，计算 y 关于 x 的梯度
     plt.figure(figsize=(4.5,2.5))
     plt.plot(x.detach().numpy(),y.detach().numpy(),label='sigmoid')
     plt.plot(x.detach().numpy(),x.grad.numpy(),linestyle='--',label='gradient')
