@@ -3,18 +3,80 @@ import numpy as np
 from IPython import display
 from torch.utils.data import DataLoader, TensorDataset
 import torch
+from torchvision import datasets,transforms
 
 # import matplotlib
 # # 强制使用 TkAgg 或 Qt5Agg 后端 (使用独立后端渲染)
 # matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
 # # matplotlib.use('Qt5Agg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
 import matplotlib.pyplot as plt
-
-from torchvision import datasets,transforms
-
-
 # import matplotlib
 # matplotlib.use('TkAgg')  # 或者使用 'Qt5Agg'，根据你的系统安装情况
+
+import hashlib
+import os
+import tarfile
+import zipfile
+import requests
+
+# DATA_HUB字典，将数据集名称的字符串映射到数据集相关的二元组上
+# 这个二元组包含数据集的url和验证文件完整性的sha-1密钥
+# 所有类似的数据集都托管在地址为DATA_URL的站点上
+DATA_HUB = dict()
+DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
+
+''' download
+下载数据集，将数据集缓存在本地目录（默认为../data）中，并返回下载文件的名称
+若缓存目录中已存在此数据集文件，且其sha-1与存储在DATA_HUB中的相匹配，则使用缓存的文件，以避免重复的下载
+name：要下载的文件名，必须在DATA_HUB中存在
+cache_dir：缓存目录，默认为../data
+sha-1：安全散列算法1
+'''
+def download(name, cache_dir=os.path.join('..', 'data')):  #@save
+    """下载一个DATA_HUB中的文件，返回本地文件名"""
+    assert name in DATA_HUB, f"{name} 不存在于 {DATA_HUB}"
+    url, sha1_hash = DATA_HUB[name]
+    os.makedirs(cache_dir, exist_ok=True)
+    fname = os.path.join(cache_dir, url.split('/')[-1])
+    if os.path.exists(fname):
+        sha1 = hashlib.sha1()
+        with open(fname, 'rb') as f:
+            while True:
+                data = f.read(1048576)
+                if not data:
+                    break
+                sha1.update(data)
+        if sha1.hexdigest() == sha1_hash:
+            return fname  # 命中缓存
+    print(f'正在从{url}下载{fname}...')
+    r = requests.get(url, stream=True, verify=True)
+    with open(fname, 'wb') as f:
+        f.write(r.content)
+    return fname
+
+'''
+name：要下载并解压的文件名，必须在DATA_HUB中存在
+folder：解压后的目标文件夹名（可选）
+'''
+def download_extract(name, folder=None):  #@save
+    """下载并解压zip/tar文件"""
+    fname = download(name)
+    base_dir = os.path.dirname(fname)
+    data_dir, ext = os.path.splitext(fname)
+    if ext == '.zip':
+        fp = zipfile.ZipFile(fname, 'r')
+    elif ext in ('.tar', '.gz'):
+        fp = tarfile.open(fname, 'r')
+    else:
+        assert False, '只有zip/tar文件可以被解压缩'
+    fp.extractall(base_dir)
+    return os.path.join(base_dir, folder) if folder else data_dir
+
+def download_all():  #@save
+    """下载DATA_HUB中的所有文件"""
+    for name in DATA_HUB:
+        download(name)
+
 
 
 def load_data_fashion_mnist(batch_size, resize=None):
