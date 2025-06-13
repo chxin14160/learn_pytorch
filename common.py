@@ -1,6 +1,6 @@
 import time
 import numpy as np
-from IPython import display
+# from IPython import display
 from torch.utils.data import DataLoader, TensorDataset
 import torch
 from torchvision import datasets,transforms
@@ -19,63 +19,95 @@ import tarfile
 import zipfile
 import requests
 
-# DATA_HUB字典，将数据集名称的字符串映射到数据集相关的二元组上
-# 这个二元组包含数据集的url和验证文件完整性的sha-1密钥
-# 所有类似的数据集都托管在地址为DATA_URL的站点上
-DATA_HUB = dict()
-DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
 
-''' download
-下载数据集，将数据集缓存在本地目录（默认为../data）中，并返回下载文件的名称
-若缓存目录中已存在此数据集文件，且其sha-1与存储在DATA_HUB中的相匹配，则使用缓存的文件，以避免重复的下载
-name：要下载的文件名，必须在DATA_HUB中存在
-cache_dir：缓存目录，默认为../data
-sha-1：安全散列算法1
-'''
-def download(name, cache_dir=os.path.join('..', 'data')):  #@save
-    """下载一个DATA_HUB中的文件，返回本地文件名"""
-    assert name in DATA_HUB, f"{name} 不存在于 {DATA_HUB}"
-    url, sha1_hash = DATA_HUB[name]
-    os.makedirs(cache_dir, exist_ok=True)
-    fname = os.path.join(cache_dir, url.split('/')[-1])
-    if os.path.exists(fname):
-        sha1 = hashlib.sha1()
-        with open(fname, 'rb') as f:
-            while True:
-                data = f.read(1048576)
-                if not data:
-                    break
-                sha1.update(data)
-        if sha1.hexdigest() == sha1_hash:
-            return fname  # 命中缓存
-    print(f'正在从{url}下载{fname}...')
-    r = requests.get(url, stream=True, verify=True)
-    with open(fname, 'wb') as f:
-        f.write(r.content)
-    return fname
+# 下载器类：下载和缓存数据集
+class C_Downloader:
+    def __init__(self, data_url = 'http://d2l-data.s3-accelerate.amazonaws.com/'):
+        # DATA_HUB字典，将数据集名称的字符串映射到数据集相关的二元组上
+        # DATA_HUB为二元组：包含数据集的url和验证文件完整性的sha-1密钥
+        self.DATA_HUB = dict()
+        self.DATA_URL = data_url # 数据集托管在地址为DATA_URL的站点上
 
-'''
-name：要下载并解压的文件名，必须在DATA_HUB中存在
-folder：解压后的目标文件夹名（可选）
-'''
-def download_extract(name, folder=None):  #@save
-    """下载并解压zip/tar文件"""
-    fname = download(name)
-    base_dir = os.path.dirname(fname)
-    data_dir, ext = os.path.splitext(fname)
-    if ext == '.zip':
-        fp = zipfile.ZipFile(fname, 'r')
-    elif ext in ('.tar', '.gz'):
-        fp = tarfile.open(fname, 'r')
-    else:
-        assert False, '只有zip/tar文件可以被解压缩'
-    fp.extractall(base_dir)
-    return os.path.join(base_dir, folder) if folder else data_dir
+    ''' download
+    下载数据集，将数据集缓存在本地目录（默认为../data）中，并返回下载文件的名称
+    若缓存目录中已存在此数据集文件，且其sha-1与存储在DATA_HUB中的相匹配，则使用缓存的文件，以避免重复的下载
+    name：要下载的文件名，必须在DATA_HUB中存在
+    cache_dir：缓存目录，默认为../data
+    sha-1：安全散列算法1
+    '''
+    def download(self, name, cache_dir=os.path.join('..', 'data')):  # @save
+        """下载一个DATA_HUB中的文件，返回本地文件名"""
+        # 检查指定的文件名是否存在于DATA_HUB中
+        # 如果不存在，则抛出断言错误，提示用户该文件不存在
+        # 断言检查：确保name在DATA_HUB中存在，避免下载不存在的文件
+        assert name in self.DATA_HUB, f"{name} 不存在于 {self.DATA_HUB}"
+        url, sha1_hash = self.DATA_HUB[name] # 从DATA_HUB中获取该文件的URL和SHA-1哈希值
 
-def download_all():  #@save
-    """下载DATA_HUB中的所有文件"""
-    for name in DATA_HUB:
-        download(name)
+        # 若目录不存在，则创建目录
+        # exist_ok=True：若目录已存在，也不会抛出错误
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # 构建本地文件路径
+        # 从URL中提取文件名（通过分割URL字符串获取最后一个部分）
+        # 并将该文件名与缓存目录组合成完整的本地文件路径
+        fname = os.path.join(cache_dir, url.split('/')[-1])
+
+        if os.path.exists(fname): # 检查本地文件是否已存在
+            sha1 = hashlib.sha1() # 计算本地文件的SHA-1哈希值(shal.sha1()：创建一个字符串hashlib_，并将其加密后传入)
+            with open(fname, 'rb') as f:
+                # 读取文件内容，每次读取1MB的数据块，以避免大文件占用过多内存
+                while True:
+                    data = f.read(1048576) # 1048576 bytes = 1MB
+                    if not data:
+                        break
+                    sha1.update(data) # 更新哈希值
+
+            # 比较计算出的哈希值与DATA_HUB中存储的哈希值
+            if sha1.hexdigest() == sha1_hash:
+                # 若哈希值匹配，说明文件完整且未被篡改，直接返回本地文件路径（命中缓存）
+                return fname  # 命中缓存
+
+        # 如果本地文件不存在或哈希值不匹配，则从URL下载文件
+        print(f'正在从{url}下载{fname}...')
+
+        # 使用requests库发起HTTP GET请求，stream=True表示以流的方式下载大文件
+        # verify=True表示验证SSL证书（确保下载的安全性）
+        r = requests.get(url, stream=True, verify=True)
+
+        # 将下载的内容写入到本地文件中
+        with open(fname, 'wb') as f:
+            f.write(r.content) # 将请求的内容写入文件
+        return fname # 返回本地文件路径
+
+    ''' 
+    下载并解压一个zip或tar文件
+    name：要下载并解压的文件名，必须在DATA_HUB中存在
+    folder：解压后的目标文件夹名（可选）
+    '''
+    def download_extract(self, name, folder=None):  # @save
+        """下载并解压zip/tar文件"""
+        fname = self.download(name) # 调用download函数下载指定的文件，获取本地文件路径
+        base_dir = os.path.dirname(fname) # 获取缓存目录路径（即下载文件所在的目录）
+        data_dir, ext = os.path.splitext(fname) # 分离文件名和扩展名
+
+        if ext == '.zip':               # 如果是zip文件，使用zipfile.ZipFile 打开文件
+            fp = zipfile.ZipFile(fname, 'r')
+        elif ext in ('.tar', '.gz'):    # 如果是tar或gz文件，使用tarfile.open 打开文件
+            fp = tarfile.open(fname, 'r')
+        else:                           # 如果文件扩展名不是zip、tar或gz，抛出断言错误
+            assert False, '只有zip/tar文件可以被解压缩'
+
+        fp.extractall(base_dir) # 将文件解压到缓存目录中
+        # 返回解压后的路径
+        # 如果指定了folder参数，返回解压后的目标文件夹路径
+        # 否则返回解压后的文件路径（即去掉扩展名的文件名）
+        return os.path.join(base_dir, folder) if folder else data_dir
+
+    # 将使用的所有数据集从DATA_HUB下载到缓存目录中
+    def download_all(self):  # @save
+        """下载DATA_HUB中的所有文件"""
+        for name in self.DATA_HUB:
+            self.download(name)
 
 
 
