@@ -4,7 +4,6 @@ import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
-import common
 import matplotlib.pyplot as plt
 from common import C_Downloader
 
@@ -279,7 +278,7 @@ def k_fold(k, X_train, y_train,
 
 # 模型选择
 # 折数，迭代轮数，学习率，权重衰减(L2正则化)的系数，批量大小
-k, num_epochs, lr, weight_decay, batch_size = 5, 100, 5, 0, 64
+# k, num_epochs, lr, weight_decay, batch_size = 5, 100, 5, 0, 64
 k, num_epochs, lr, weight_decay, batch_size = 8, 150, 6, 0, 64
 train_l, valid_l = k_fold(k, train_features, train_labels, num_epochs, lr, weight_decay,
           batch_size)
@@ -325,7 +324,7 @@ def train_and_pred(train_features, test_features,
     # 将 Id 和 SalePrice 列合并为一个新的 DataFrame submission
     submission = pd.concat([test_data['Id'], test_data['SalePrice']], axis=1)
     # 将 submission 保存为 CSV 文件，不包含索引
-    submission.to_csv('submission.csv', index=False)
+    submission.to_csv('outputFile/submission.csv', index=False)
 
 train_and_pred(train_features, test_features, train_labels, test_data,
                   num_epochs, lr, weight_decay, batch_size)
