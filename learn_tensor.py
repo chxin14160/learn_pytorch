@@ -1,6 +1,18 @@
 import torch
 import numpy as np
 
+
+x = torch.empty(3, 3) # 创建一个形状为(3, 3)的未初始化张量
+print(f"初始化为3*3空张量 x=\n{x}")
+
+x.uniform_() # 使用uniform_()方法填充张量，范围为[0, 1)
+print(f"使用uniform_()填充，范围为[0, 1) x=\n{x}")
+
+y = torch.empty(3, 3)
+y.uniform_(10, 20)# 使用uniform_()方法填充张量，范围为[10, 20)
+print(f"{y}")
+
+
 # 直接从数据创建张量。数据类型是自动推断的
 data = [[1, 2],[3, 4]]
 x_data = torch.tensor(data)
