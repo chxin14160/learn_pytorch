@@ -280,52 +280,82 @@ def custom_layer():
 # custom_layer()
 
 
+def read_and_write_files():
+    x = torch.arange(4)
+    torch.save(x, 'outputFile/x-file') # 将张量保存到文件中
 
-x = torch.arange(4)
-torch.save(x, 'outputFile/x-file') # 将张量保存到文件中
+    x2 = torch.load('outputFile/x-file', weights_only=False) # 从文件中加载张量，并赋值
+    print(f"x2={x2}")
 
-x2 = torch.load('outputFile/x-file', weights_only=False) # 从文件中加载张量，并赋值
-print(f"x2={x2}")
+    # 存储一个张量列表，然后把它们读回内存：
+    y = torch.zeros(4)
+    torch.save([x, y],'outputFile/x-files') # 将两个张量保存到文件中
+    x2, y2 = torch.load('outputFile/x-files', weights_only=False) # 加载列表中的张量，并将其解包到 x2 和 y2
+    print(f"x2, y2 = {x2, y2}")
 
-# 存储一个张量列表，然后把它们读回内存：
-y = torch.zeros(4)
-torch.save([x, y],'outputFile/x-files') # 将两个张量保存到文件中
-x2, y2 = torch.load('outputFile/x-files', weights_only=False) # 加载列表中的张量，并将其解包到 x2 和 y2
-print(f"x2, y2 = {x2, y2}")
-
-# 写入或读取从字符串映射到张量的字典
-mydict = {'x': x, 'y': y} # 创建字典
-torch.save(mydict, 'outputFile/mydict') # 将字典保存到文件 mydict 中
-mydict2 = torch.load('outputFile/mydict', weights_only=False) # 加载字典，并将其赋值给 mydict2
-print(f"mydict2={mydict2}")
-
-
-class MLP(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.hidden = nn.Linear(20, 256)
-        self.output = nn.Linear(256, 10)
-
-    def forward(self, x):
-        return self.output(F.relu(self.hidden(x)))
-
-net = MLP()
-X = torch.randn(size=(2, 20))
-Y = net(X)
-
-torch.save(net.state_dict(), 'outputFile/mlp.params')
-
-clone = MLP()
-print(f"模型：\n{clone}")
-# 直接读取文件中存储的参数
-# clone.load_state_dict(...) 将加载的状态字典应用到clone中
-clone.load_state_dict(torch.load('outputFile/mlp.params', weights_only=False))
-clone.eval() # 设置模型为评估模式
-
-Y_clone = clone(X)
-print(f"副本与读上来版本的异同：\n{Y_clone == Y}")
+    # 写入或读取从字符串映射到张量的字典
+    mydict = {'x': x, 'y': y} # 创建字典
+    torch.save(mydict, 'outputFile/mydict') # 将字典保存到文件 mydict 中
+    mydict2 = torch.load('outputFile/mydict', weights_only=False) # 加载字典，并将其赋值给 mydict2
+    print(f"mydict2={mydict2}")
 
 
+    class MLP(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.hidden = nn.Linear(20, 256)
+            self.output = nn.Linear(256, 10)
 
+        def forward(self, x):
+            return self.output(F.relu(self.hidden(x)))
+
+    net = MLP()
+    X = torch.randn(size=(2, 20))
+    Y = net(X)
+
+    torch.save(net.state_dict(), 'outputFile/mlp.params')
+
+    clone = MLP()
+    print(f"模型：\n{clone}")
+    # 直接读取文件中存储的参数
+    # clone.load_state_dict(...) 将加载的状态字典应用到clone中
+    clone.load_state_dict(torch.load('outputFile/mlp.params', weights_only=False))
+    clone.eval() # 设置模型为评估模式
+
+    Y_clone = clone(X)
+    print(f"副本与读上来版本的异同：\n{Y_clone == Y}")
+
+# read_and_write_files()
+
+
+print(f"{torch.device('cpu'), torch.device('cuda'), torch.device('cuda:1')}")
+print(f"CPU：{torch.device('cpu')}")
+print(f"GPU：{torch.device('cuda')}")
+print(f"第1块GPU：{torch.device('cuda:1')}")
+
+print(f"GPU的数量：{torch.cuda.device_count()}")
+
+
+def try_gpu(i=0):  #@save
+    """如果存在，则返回gpu(i)，否则返回cpu()"""
+    if torch.cuda.device_count() >= i + 1:  # 如果存在第 i 个 GPU
+        return torch.device(f'cuda:{i}')    # 返回第 i 个 GPU 设备
+    return torch.device('cpu') # 若系统中无足够的GPU设备（即GPU数量<i+1），则返回CPU设备
+
+def try_all_gpus():  #@save
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
+    devices = [torch.device(f'cuda:{i}')
+             for i in range(torch.cuda.device_count())]
+    # 如果存在可用的 GPU，则返回一个包含所有 GPU 设备的列表
+    return devices if devices else [torch.device('cpu')]
+
+# from common import try_gpu, try_all_gpus
+print(f"{try_gpu(), try_gpu(10), try_all_gpus()}")
+print(f"默认尝试返回第1个GPU设备：{try_gpu()}")
+print(f"尝试返回第11个GPU设备：{try_gpu(10)}")
+print(f"返回所有可用的GPU：{try_all_gpus()}")
+
+x = torch.tensor([1, 2, 3])
+print(f"{x.device}")
 
 

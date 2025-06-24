@@ -20,6 +20,7 @@ import zipfile
 import requests
 
 
+
 # 下载器类：下载和缓存数据集
 class C_Downloader:
     def __init__(self, data_url = 'http://d2l-data.s3-accelerate.amazonaws.com/'):
@@ -109,6 +110,19 @@ class C_Downloader:
         for name in self.DATA_HUB:
             self.download(name)
 
+
+# def try_gpu(i=0):  #@save
+#     """如果存在，则返回gpu(i)，否则返回cpu()"""
+#     if torch.cuda.device_count() >= i + 1:  # 如果存在第 i 个 GPU
+#         return torch.device(f'cuda:{i}')    # 返回第 i 个 GPU 设备
+#     return torch.device('cpu') # 若系统中无足够的GPU设备（即GPU数量<i+1），则返回CPU设备
+#
+# def try_all_gpus():  #@save
+#     """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
+#     devices = [torch.device(f'cuda:{i}')
+#              for i in range(torch.cuda.device_count())]
+#     # 如果存在可用的 GPU，则返回一个包含所有 GPU 设备的列表
+#     return devices if devices else [torch.device('cpu')]
 
 
 def load_data_fashion_mnist(batch_size, resize=None):
