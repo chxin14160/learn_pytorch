@@ -54,26 +54,30 @@ print(f"将输入的二维图像转置，再进行如上的互相关运算：\n{
 
 
 
-# 构造一个二维卷积层，它具有1个输出通道和形状为（1，2）的卷积核
+# 构造一个二维卷积层，输出通道为1，且卷积核形状为（1，2）
 conv2d = nn.Conv2d(1, 1, kernel_size=(1, 2), bias=False)
 
 # 这个二维卷积层使用四维输入和输出格式（批量大小、通道、高度、宽度），
 # 其中批量大小和通道数都为1
-X = X.reshape((1, 1, 6, 8))
-Y = Y.reshape((1, 1, 6, 7))
-lr = 3e-2  # 学习率
+X = X.reshape((1, 1, 6, 8)) # 输入形状：[batch_size=1, channels=1, height=6, width=8]
+Y = Y.reshape((1, 1, 6, 7)) # 目标形状：[batch_size=1, channels=1, height=6, width=7]
+lr = 3e-2  # 学习率=3*10的-2次方=0.03
+print(f"输入：\n{X}")
+print(f"目标：\n{Y}")
 
 for i in range(10):
-    Y_hat = conv2d(X)
-    l = (Y_hat - Y) ** 2
-    conv2d.zero_grad()
-    l.sum().backward()
+    Y_hat = conv2d(X)       # 结果卷积层的预测结果值(前向传播)
+    l = (Y_hat - Y) ** 2    # 计算损失值(均方差MSE损失)
+    conv2d.zero_grad()      # 将梯度清零
+    l.sum().backward()      # 反向传播
+    # 梯度下降，更新权重 (更新可学习的参数)
     # 迭代卷积核
+    # 可以使用优化器（如 torch.optim.SGD）替代手动更新
     conv2d.weight.data[:] -= lr * conv2d.weight.grad
-    if (i + 1) % 2 == 0:
+    if (i + 1) % 2 == 0: # 每2轮打印一次损失
         print(f'epoch {i + 1}, loss {l.sum():.3f}')
 
-
+print(f"最终卷积核权重：\n{conv2d.weight.data.reshape((1, 2))}")
 
 
 
