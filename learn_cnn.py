@@ -80,7 +80,7 @@ for i in range(10):
 print(f"最终卷积核权重：\n{conv2d.weight.data.reshape((1, 2))}")
 
 
-def padding_and_stride():
+def learn_padding_and_stride():
     # 为了方便起见，这里定义了一个计算卷积层的函数
     # 此函数初始化卷积层权重，并对输入和输出提高和缩减相应的维数
     def comp_conv2d(conv2d, X):
@@ -110,54 +110,127 @@ def padding_and_stride():
     print(f"使用3*5的卷积核，顶部和底部不填充，左右各填充1行，高度步幅设为3，宽度步幅设为4\n"
           f"卷积后输出形状：\n{comp_conv2d(conv2d, X).shape}")
 
-# padding_and_stride()
+# learn_padding_and_stride()
 
 
-# 多输入通道的二维互相关运算
-def corr2d_multi_in(X, K):
-    # 先遍历“X”和“K”的第0个维度（通道维度），再把它们加在一起
-    # corr2d(x, k) 调用前面定义的二维互相关运算
-    # zip(X, K) 将输入数据和卷积核按通道配对，生成一个可迭代的元组序列
-    # corr2d(x,k) for x,k in zip(X,K) 生成器表达式：惰性计算每个通道的互相关结果，避免中间存储
-    return sum(corr2d(x, k) for x, k in zip(X, K))
+def learn_multi_in_out():
+    # 多输入通道的二维互相关运算
+    def corr2d_multi_in(X, K):
+        # 先遍历“X”和“K”的第0个维度（通道维度），再把它们加在一起
+        # corr2d(x, k) 调用前面定义的二维互相关运算
+        # zip(X, K) 将输入数据和卷积核按通道配对，生成一个可迭代的元组序列
+        # corr2d(x,k) for x,k in zip(X,K) 生成器表达式：惰性计算每个通道的互相关结果，避免中间存储
+        return sum(corr2d(x, k) for x, k in zip(X, K))
 
-X = torch.tensor([[[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]],
-                  [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]])
-K = torch.tensor([[[0.0, 1.0], [2.0, 3.0]], [[1.0, 2.0], [3.0, 4.0]]])
-print(f"多输入通道互相关运算结果：\n{corr2d_multi_in(X, K)}")
-print(f"原始 核张量K 的形状：{K.shape}")
-print(f"原始 核张量K：\n{K}")
-
-
-# 计算多个通道的输出 的互相关
-def corr2d_multi_in_out(X, K):
-    # 迭代“K”的第0个维度，每次都对输入“X”执行互相关运算。
-    # 最后将所有结果都叠加在一起
-    return torch.stack([corr2d_multi_in(X, k) for k in K], 0)
-
-# 通过将核张量K与K+1（K中每个元素加）和K+2连接起来，构造了一个具有个输出通道的卷积核
-# 将三个张量沿 新的第 0 维 堆叠，形成一个3通道卷积核
-K = torch.stack((K, K + 1, K + 2), 0)
-print(f"核张量K 的形状：{K.shape}")
-print(f"核张量K：\n{K}")
-
-print(f"多个通道的输出 的互相关 运算结果：\n{corr2d_multi_in_out(X, K)}")
+    X = torch.tensor([[[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]],
+                      [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]])
+    K = torch.tensor([[[0.0, 1.0], [2.0, 3.0]], [[1.0, 2.0], [3.0, 4.0]]])
+    print(f"多输入通道互相关运算结果：\n{corr2d_multi_in(X, K)}")
+    print(f"原始 核张量K 的形状：{K.shape}")
+    print(f"原始 核张量K：\n{K}")
 
 
-# 1x1 卷积的多输入多输出通道版本
-def corr2d_multi_in_out_1x1(X, K):
-    c_i, h, w = X.shape          # 输入形状: (输入通道数, 高度, 宽度)
-    c_o = K.shape[0]             # 输出通道数 (K的第一维)
-    X = X.reshape((c_i, h * w))  # 将空间维度展平: (c_i, h*w)
-    K = K.reshape((c_o, c_i))    # 将卷积核展平: (c_o, c_i)
-    # 全连接层中的矩阵乘法
-    Y = torch.matmul(K, X)       # 矩阵乘法: (c_o, h*w)
-    return Y.reshape((c_o, h, w)) # 恢复空间维度: (c_o, h, w)
+    # 计算多个通道的输出 的互相关
+    def corr2d_multi_in_out(X, K):
+        # 迭代“K”的第0个维度，每次都对输入“X”执行互相关运算。
+        # 最后将所有结果都叠加在一起
+        return torch.stack([corr2d_multi_in(X, k) for k in K], 0)
+
+    # 通过将核张量K与K+1（K中每个元素加）和K+2连接起来，构造了一个具有个输出通道的卷积核
+    # 将三个张量沿 新的第 0 维 堆叠，形成一个3通道卷积核
+    K = torch.stack((K, K + 1, K + 2), 0)
+    print(f"核张量K 的形状：{K.shape}")
+    print(f"核张量K：\n{K}")
+
+    print(f"多个通道的输出 的互相关 运算结果：\n{corr2d_multi_in_out(X, K)}")
 
 
-X = torch.normal(0, 1, (3, 3, 3))
-K = torch.normal(0, 1, (2, 3, 1, 1))
+    '''
+    1x1 卷积的本质：
+    1x1 卷积相当于对每个空间位置 (i,j) 独立进行 全连接层计算（跨通道的线性变换）
+    可以通过矩阵乘法高效实现
+    '''
+    # 1x1 卷积的多输入多输出通道版本
+    def corr2d_multi_in_out_1x1(X, K):
+        c_i, h, w = X.shape          # 输入数据的形状: (输入通道数, 高度, 宽度)
+        c_o = K.shape[0]             # 输出通道数 (K的第一维)
+        print(f"展平前 X 的形状：{X.shape}")
+        print(f"展平前 核张量X：\n{X}")
+        print(f"展平前 核张量K 的形状：{K.shape}")
+        print(f"展平前 核张量K：\n{K}")
+        X = X.reshape((c_i, h * w))  # 将空间维度展平: (c_i, h*w)
+        K = K.reshape((c_o, c_i))    # 将卷积核展平: (c_o, c_i)
+        print(f"展平后 X 的形状：{X.shape}")
+        print(f"展平后 核张量X：\n{X}")
+        print(f"展平后 核张量K 的形状：{K.shape}")
+        print(f"展平后 核张量K：\n{K}")
+        # 全连接层中的矩阵乘法
+        Y = torch.matmul(K, X)       # 矩阵乘法: (c_o, h*w)
+        return Y.reshape((c_o, h, w)) # 恢复空间维度: (c_o, h, w)
 
-Y1 = corr2d_multi_in_out_1x1(X, K)
-Y2 = corr2d_multi_in_out(X, K)
-assert float(torch.abs(Y1 - Y2).sum()) < 1e-6
+    # 验证与通用卷积的一致性
+    # 从均值=0，方差=1的离散正态分布中随机抽取数值
+    X = torch.normal(0, 1, (3, 3, 3))    # 组成3*3*3的张量
+    K = torch.normal(0, 1, (2, 3, 1, 1)) # 组成2*3*1*1的张量
+
+    print(f"---------------------")
+    Y1 = corr2d_multi_in_out_1x1(X, K)  # 1*1卷积优化计算
+    Y2 = corr2d_multi_in_out(X, K)      # 通用多通道卷积
+    assert float(torch.abs(Y1 - Y2).sum()) < 1e-6 # 验证结果一致
+
+# learn_multi_in_out()
+
+
+def learn_pooling():
+    # 自定义二维汇聚层
+    def pool2d(X, pool_size, mode='max'):
+        p_h, p_w = pool_size # 池化窗口的高度和宽度
+        # 计算输出张量的形状（输入大小 - 池化窗口大小 + 1）
+        Y = torch.zeros((X.shape[0] - p_h + 1, X.shape[1] - p_w + 1))
+        for i in range(Y.shape[0]):
+            for j in range(Y.shape[1]):
+                window = X[i: i + p_h, j: j + p_w] # 提取当前窗口的子矩阵
+                if mode == 'max':   # 最大汇聚：取窗口内的最大值
+                    Y[i, j] = window.max()
+                elif mode == 'avg': # 平均汇聚：取窗口内的平均值
+                    Y[i, j] = window.mean()
+        return Y
+
+    X = torch.tensor([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]])
+    print(f"输入X：\n{X}")
+    print(f"最大汇聚层（最大池化层）：\n{pool2d(X, (2, 2))}")
+    print(f"平均汇聚层（平均池化层）：\n{pool2d(X, (2, 2), 'avg')}")
+
+
+    # 直接使用 PyTorch中内置的 二维最大汇聚层：
+    # 输入输出通道数皆为1的 4*4张量
+    X = torch.arange(16, dtype=torch.float32).reshape((1, 1, 4, 4))
+    print(f"输入X：\n{X}")
+
+    pool2d = nn.MaxPool2d(3)  # 池化窗口大小 3×3
+    print(f"最大汇聚层（最大池化层）：池化窗口大小 3×3"
+          f"\n{pool2d(X)}")
+
+    pool2d = nn.MaxPool2d(3, padding=1, stride=2)
+    print(f"最大汇聚层（最大池化层）：输入四周补1圈0，步长设为2\n{pool2d(X)}")
+
+    pool2d = nn.MaxPool2d((2, 3), stride=(2, 3), padding=(0, 1))
+    print(f"最大汇聚层（最大池化层）：非对称窗口和步长"
+          f"\n步长为2行3列，仅在宽度方向补1圈0："
+          f"\n{pool2d(X)}")
+
+
+    # 多个通道的情况：
+    # 张量的维度顺序通常遵循 NCHW 格式（批量大小 × 通道数 × 高度 × 宽度）
+    X = torch.cat((X, X + 1), 1) # 沿现有维度 第一维即通道 拼接两个张量
+    print(f"输入X：通道数为2\n{X}")
+
+    pool2d = nn.MaxPool2d(3, padding=1, stride=2)
+    print(f"最大汇聚层（最大池化层）：输入四周补1圈0，步长设为2"
+          f"\n池化后通道数不变"
+          f"\n{pool2d(X)}")
+
+# learn_pooling()
+
+
+
