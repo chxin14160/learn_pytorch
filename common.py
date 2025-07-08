@@ -111,18 +111,18 @@ class C_Downloader:
             self.download(name)
 
 
-# def try_gpu(i=0):  #@save
-#     """如果存在，则返回gpu(i)，否则返回cpu()"""
-#     if torch.cuda.device_count() >= i + 1:  # 如果存在第 i 个 GPU
-#         return torch.device(f'cuda:{i}')    # 返回第 i 个 GPU 设备
-#     return torch.device('cpu') # 若系统中无足够的GPU设备（即GPU数量<i+1），则返回CPU设备
-#
-# def try_all_gpus():  #@save
-#     """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
-#     devices = [torch.device(f'cuda:{i}')
-#              for i in range(torch.cuda.device_count())]
-#     # 如果存在可用的 GPU，则返回一个包含所有 GPU 设备的列表
-#     return devices if devices else [torch.device('cpu')]
+def try_gpu(i=0):  #@save
+    """如果存在，则返回gpu(i)，否则返回cpu()"""
+    if torch.cuda.device_count() >= i + 1:  # 如果存在第 i 个 GPU
+        return torch.device(f'cuda:{i}')    # 返回第 i 个 GPU 设备
+    return torch.device('cpu') # 若系统中无足够的GPU设备（即GPU数量<i+1），则返回CPU设备
+
+def try_all_gpus():  #@save
+    """返回所有可用的GPU，如果没有GPU，则返回[cpu(),]"""
+    devices = [torch.device(f'cuda:{i}')
+             for i in range(torch.cuda.device_count())]
+    # 如果存在可用的 GPU，则返回一个包含所有 GPU 设备的列表
+    return devices if devices else [torch.device('cpu')]
 
 
 def load_data_fashion_mnist(batch_size, resize=None):
@@ -206,7 +206,7 @@ def evaluate_accuracy(net, data_iter):  # @save
             # numel()函数：返回数组中元素的个数，在此可以求得样本数
             metric.add(accuracy(net(X), y), y.numel())
 
-        # metric[0, 1]分别为网络预测正确数量和总预测数量
+    # metric[0, 1]分别为网络预测正确数量和总预测数量
     return metric[0] / metric[1]
 
 def train_epoch_ch3(net, train_iter, loss, updater):  # @save
