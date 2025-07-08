@@ -233,4 +233,97 @@ def learn_pooling():
 # learn_pooling()
 
 
+import common
 
+net = nn.Sequential( # 定义顺序容器
+    nn.Conv2d(1, 6, kernel_size=5, padding=2), nn.Sigmoid(),    # 输入通道=1，输出通道=6，5×5 卷积核，padding=2 保持尺寸不变
+    nn.AvgPool2d(kernel_size=2, stride=2),  # 2×2平均池化，步幅=2（输出尺寸减半）
+    nn.Conv2d(6, 16, kernel_size=5), nn.Sigmoid(),  # 输入通道=6，输出通道=16，5×5卷积核（无padding，尺寸缩小）
+    nn.AvgPool2d(kernel_size=2, stride=2),  # 2×2平均池化，步幅=2（输出尺寸减半）
+    nn.Flatten(),                           # 展平层：将多维张量展平为一维向量，供全连接层使用
+    nn.Linear(16 * 5 * 5, 120), nn.Sigmoid(),   # 经过两次池化后，特征图尺寸为(16,5,5)，展平为 16*5*5=400 维向量
+    # 后续接两个隐藏层（120 和 84 个神经元）和输出层（10 类）
+    nn.Linear(120, 84), nn.Sigmoid(), # Sigmoid激活函数，将输出压缩到(0,1)区间（现代CNN通常用ReLU）
+    nn.Linear(84, 10))  # 输出层通常不用激活函数，CrossEntropyLoss会包含Softmax
+
+# 模拟输入：batch_size=1，通道=1，高度=28，宽度=28（Fashion-MNIST尺寸）
+X = torch.rand(size=(1, 1, 28, 28), dtype=torch.float32)
+for layer in net: # 逐层前向传播并打印输出形状
+    X = layer(X)  # 前向计算
+    print(layer.__class__.__name__,'output shape: \t',X.shape) # 打印层类型和输出形状（张量的维度）
+
+batch_size = 256 # 批量大小，每次处理256张图像
+# 加载Fashion-MNIST数据集，返回 训练集和测试集的DataLoader对象
+train_iter, test_iter = common.load_data_fashion_mnist(batch_size=batch_size)
+
+# 评估函数
+def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
+    """使用GPU计算模型在数据集上的精度"""
+    if isinstance(net, nn.Module):  # 判断模型是否为深度学习模型
+        net.eval()  # 设置为评估模式（关闭Dropout和BatchNorm的随机性）
+        if not device: # 如果没有指定设备，自动使用模型参数所在的设备（如GPU）
+            device = next(iter(net.parameters())).device # 自动检测设备
+    # 初始化计数器：累计 正确预测的数量 和 总预测的数量
+    metric = common.Accumulator(2) # metric[0]=正确数, metric[1]=总数
+    with torch.no_grad():  # 禁用梯度计算（加速评估并减少内存占用）
+        for X, y in data_iter:  # 每次从迭代器中拿出一个X和y
+            # 将数据移动到指定设备（如GPU）
+            if isinstance(X, list):
+                # BERT微调所需的（之后将介绍）
+                X = [x.to(device) for x in X]
+            else:
+                X = X.to(device)
+            y = y.to(device)
+            # 计算预测值和准确率，并累加到metric中
+            metric.add(common.accuracy(net(X), y), y.numel()) # 累加准确率和样本数
+    # metric[0, 1]分别为网络预测正确数量和总预测数量
+    return metric[0] / metric[1] # 计算准确率
+
+#@save
+def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
+    """用GPU训练模型(在第六章定义)"""
+    def init_weights(m):
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            nn.init.xavier_uniform_(m.weight) # Xavier初始化，保持输入输出的方差稳定
+    net.apply(init_weights)  # 应用初始化到整个网络（初始化权重）
+    print('training on', device)
+    net.to(device)  # 模型移至指定设备（如GPU）
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr) # 定义优化器：随机梯度下降（SGD），学习率为lr
+    loss = nn.CrossEntropyLoss()  # 交叉熵损失
+    # 初始化动画绘图器，用于动态绘制训练曲线
+    animator = common.Animator(xlabel='epoch',
+                               xlim=[1, num_epochs],
+                               legend=['train loss', 'train acc', 'test acc'])
+    # 初始化计时器和计算总批次数
+    timer, num_batches = common.Timer(), len(train_iter)
+    # 开始训练循环
+    for epoch in range(num_epochs):
+        # Accumulator(3)创建3个变量：训练损失总和、训练准确度总和、样本数
+        metric = common.Accumulator(3) # 用于跟踪训练损失、准确率和样本数
+        net.train()  # 切换到训练模式（启用Dropout和BatchNorm的训练行为）
+        for i, (X, y) in enumerate(train_iter):
+            timer.start()           # 开始计时
+            optimizer.zero_grad()   # 清空梯度
+            X, y = X.to(device), y.to(device)   # 将数据移动到设备
+            y_hat = net(X)          # 前向传播：模型预测
+            l = loss(y_hat, y)      # 计算损失（向量形式，每个样本一个损失值）
+            l.backward()            # 反向传播计算梯度
+            optimizer.step()        # 更新参数
+            with torch.no_grad(): # 禁用梯度计算后累计指标
+                metric.add(l * X.shape[0], common.accuracy(y_hat, y), X.shape[0])
+            timer.stop()            # 停止计时
+            train_l = metric[0] / metric[2]     # 平均训练损失
+            train_acc = metric[1] / metric[2]   # 平均训练准确率
+            # 每训练完1/5的epoch 或 最后一个batch时，更新训练曲线
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
+                animator.add(epoch + (i + 1) / num_batches,
+                             (train_l, train_acc, None))
+        test_acc = evaluate_accuracy_gpu(net, test_iter)  # 测试集准确率
+        animator.add(epoch + 1, (None, None, test_acc)) # 更新测试集准确率曲线
+    print(f'最终结果：loss {train_l:.3f}, train acc {train_acc:.3f}, '
+          f'test acc {test_acc:.3f}')
+    print(f'训练速度（样本数/总时间）：{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
+          f'on {str(device)}')
+
+lr, num_epochs = 0.9, 10 # 学习率，训练轮数(训练10轮)
+train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
