@@ -236,12 +236,12 @@ def learn_pooling():
 import common
 
 net = nn.Sequential( # 定义顺序容器
-    nn.Conv2d(1, 6, kernel_size=5, padding=2), nn.Sigmoid(),    # 输入通道=1，输出通道=6，5×5 卷积核，padding=2 保持尺寸不变
+    nn.Conv2d(1, 6, kernel_size=5, padding=2), nn.Sigmoid(), # 输入通道=1，输出通道=6，5×5 卷积核，padding=2 保持尺寸不变
     nn.AvgPool2d(kernel_size=2, stride=2),  # 2×2平均池化，步幅=2（输出尺寸减半）
     nn.Conv2d(6, 16, kernel_size=5), nn.Sigmoid(),  # 输入通道=6，输出通道=16，5×5卷积核（无padding，尺寸缩小）
     nn.AvgPool2d(kernel_size=2, stride=2),  # 2×2平均池化，步幅=2（输出尺寸减半）
     nn.Flatten(),                           # 展平层：将多维张量展平为一维向量，供全连接层使用
-    nn.Linear(16 * 5 * 5, 120), nn.Sigmoid(),   # 经过两次池化后，特征图尺寸为(16,5,5)，展平为 16*5*5=400 维向量
+    nn.Linear(16 * 5 * 5, 120), nn.Sigmoid(), # 经过两次池化后，特征图尺寸为(16,5,5)，展平为 16*5*5=400 维向量
     # 后续接两个隐藏层（120 和 84 个神经元）和输出层（10 类）
     nn.Linear(120, 84), nn.Sigmoid(), # Sigmoid激活函数，将输出压缩到(0,1)区间（现代CNN通常用ReLU）
     nn.Linear(84, 10))  # 输出层通常不用激活函数，CrossEntropyLoss会包含Softmax
