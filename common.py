@@ -3,6 +3,7 @@ import numpy as np
 # from IPython import display
 from torch.utils.data import DataLoader, TensorDataset
 import torch
+from torch import nn
 from torchvision import datasets,transforms
 
 # import matplotlib
@@ -209,6 +210,7 @@ def evaluate_accuracy(net, data_iter):  # @save
     # metric[0, 1]分别为网络预测正确数量和总预测数量
     return metric[0] / metric[1]
 
+
 def train_epoch_ch3(net, train_iter, loss, updater):  # @save
     """训练模型一个迭代周期（定义见第3章）"""
     # 判断net模型是否为深度学习类型，将模型设置为训练模式
@@ -236,6 +238,75 @@ def train_epoch_ch3(net, train_iter, loss, updater):  # @save
         metric.add(float(l.sum()), accuracy(y_hat, y), y.numel())
     # 返回训练损失(平均损失)和训练精度，metric的值由Accumulator得到
     return metric[0] / metric[2], metric[1] / metric[2]
+
+
+# 评估函数
+def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
+    """使用GPU计算模型在数据集上的精度"""
+    if isinstance(net, nn.Module):  # 判断模型是否为深度学习模型
+        net.eval()  # 设置为评估模式（关闭Dropout和BatchNorm的随机性）
+        if not device: # 如果没有指定设备，自动使用模型参数所在的设备（如GPU）
+            device = next(iter(net.parameters())).device # 自动检测设备
+    # 初始化计数器：累计 正确预测的数量 和 总预测的数量
+    metric = Accumulator(2) # metric[0]=正确数, metric[1]=总数
+    with torch.no_grad():  # 禁用梯度计算（加速评估并减少内存占用）
+        for X, y in data_iter:  # 每次从迭代器中拿出一个X和y
+            # 将数据移动到指定设备（如GPU）
+            if isinstance(X, list):
+                # BERT微调所需的（之后将介绍）
+                X = [x.to(device) for x in X]
+            else:
+                X = X.to(device)
+            y = y.to(device)
+            # 计算预测值和准确率，并累加到metric中
+            metric.add(accuracy(net(X), y), y.numel()) # 累加准确率和样本数
+    # metric[0, 1]分别为网络预测正确数量和总预测数量
+    return metric[0] / metric[1] # 计算准确率
+
+def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
+    """用GPU训练模型(在第六章定义)"""
+    def init_weights(m):
+        if type(m) == nn.Linear or type(m) == nn.Conv2d:
+            nn.init.xavier_uniform_(m.weight) # Xavier初始化，保持输入输出的方差稳定
+    net.apply(init_weights)  # 应用初始化到整个网络（初始化权重）
+    print('training on', device)
+    net.to(device)  # 模型移至指定设备（如GPU）
+    optimizer = torch.optim.SGD(net.parameters(), lr=lr) # 定义优化器：随机梯度下降（SGD），学习率为lr
+    loss = nn.CrossEntropyLoss()  # 交叉熵损失
+    # 初始化动画绘图器，用于动态绘制训练曲线
+    animator = Animator(xlabel='epoch',
+                               xlim=[1, num_epochs],
+                               legend=['train loss', 'train acc', 'test acc'])
+    # 初始化计时器和计算总批次数
+    timer, num_batches = Timer(), len(train_iter)
+    # 开始训练循环
+    for epoch in range(num_epochs):
+        # Accumulator(3)创建3个变量：训练损失总和、训练准确度总和、样本数
+        metric = Accumulator(3) # 用于跟踪训练损失、准确率和样本数
+        net.train()  # 切换到训练模式（启用Dropout和BatchNorm的训练行为）
+        for i, (X, y) in enumerate(train_iter):
+            timer.start()           # 开始计时
+            optimizer.zero_grad()   # 清空梯度
+            X, y = X.to(device), y.to(device)   # 将数据移动到设备
+            y_hat = net(X)          # 前向传播：模型预测
+            l = loss(y_hat, y)      # 计算损失（向量形式，每个样本一个损失值）
+            l.backward()            # 反向传播计算梯度
+            optimizer.step()        # 更新参数
+            with torch.no_grad(): # 禁用梯度计算后累计指标
+                metric.add(l * X.shape[0], accuracy(y_hat, y), X.shape[0])
+            timer.stop()            # 停止计时
+            train_l = metric[0] / metric[2]     # 平均训练损失
+            train_acc = metric[1] / metric[2]   # 平均训练准确率
+            # 每训练完1/5的epoch 或 最后一个batch时，更新训练曲线
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
+                animator.add(epoch + (i + 1) / num_batches,
+                             (train_l, train_acc, None))
+        test_acc = evaluate_accuracy_gpu(net, test_iter)  # 测试集准确率
+        animator.add(epoch + 1, (None, None, test_acc)) # 更新测试集准确率曲线
+    print(f'最终结果：loss {train_l:.3f}, train acc {train_acc:.3f}, '
+          f'test acc {test_acc:.3f}')
+    print(f'训练速度（样本数/总时间）：{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
+          f'on {str(device)}')
 
 
 
