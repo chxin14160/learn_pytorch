@@ -240,10 +240,15 @@ def train_epoch_ch3(net, train_iter, loss, updater):  # @save
     return metric[0] / metric[2], metric[1] / metric[2]
 
 
+"""
 # 评估函数
+    定义精度评估函数：
+    1、将数据集复制到显存中
+    2、通过调用accuracy计算数据集的精度
+"""
 def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
     """使用GPU计算模型在数据集上的精度"""
-    if isinstance(net, nn.Module):  # 判断模型是否为深度学习模型
+    if isinstance(net, nn.Module):  # 判断net是否属于torch.nn.Module类(模型是否为深度学习模型)
         net.eval()  # 设置为评估模式（关闭Dropout和BatchNorm的随机性）
         if not device: # 如果没有指定设备，自动使用模型参数所在的设备（如GPU）
             device = next(iter(net.parameters())).device # 自动检测设备
@@ -251,7 +256,7 @@ def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
     metric = Accumulator(2) # metric[0]=正确数, metric[1]=总数
     with torch.no_grad():  # 禁用梯度计算（加速评估并减少内存占用）
         for X, y in data_iter:  # 每次从迭代器中拿出一个X和y
-            # 将数据移动到指定设备（如GPU）
+            # 将数据X,y移动到指定设备（如GPU）
             if isinstance(X, list):
                 # BERT微调所需的（之后将介绍）
                 X = [x.to(device) for x in X]
@@ -263,14 +268,23 @@ def evaluate_accuracy_gpu(net, data_iter, device=None): #@save
     # metric[0, 1]分别为网络预测正确数量和总预测数量
     return metric[0] / metric[1] # 计算准确率
 
+"""
+    定义GPU训练函数：
+    1、为了使用gpu，首先需要将每一小批量数据移动到指定的设备（例如GPU）上；
+    2、使用Xavier随机初始化模型参数；
+    3、使用交叉熵损失函数和小批量随机梯度下降。
+"""
 def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     """用GPU训练模型(在第六章定义)"""
-    def init_weights(m):
+    def init_weights(m): # 定义初始化参数，对线性层和卷积层生效
         if type(m) == nn.Linear or type(m) == nn.Conv2d:
             nn.init.xavier_uniform_(m.weight) # Xavier初始化，保持输入输出的方差稳定
     net.apply(init_weights)  # 应用初始化到整个网络（初始化权重）
+
+    # 在设备device上进行训练
     print('training on', device)
     net.to(device)  # 模型移至指定设备（如GPU）
+
     optimizer = torch.optim.SGD(net.parameters(), lr=lr) # 定义优化器：随机梯度下降（SGD），学习率为lr
     loss = nn.CrossEntropyLoss()  # 交叉熵损失
     # 初始化动画绘图器，用于动态绘制训练曲线
@@ -278,7 +292,7 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
                                xlim=[1, num_epochs],
                                legend=['train loss', 'train acc', 'test acc'])
     # 初始化计时器和计算总批次数
-    timer, num_batches = Timer(), len(train_iter)
+    timer, num_batches = Timer(), len(train_iter) # 调用Timer函数统计时间
     # 开始训练循环
     for epoch in range(num_epochs):
         # Accumulator(3)创建3个变量：训练损失总和、训练准确度总和、样本数
@@ -301,12 +315,13 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
             if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
                 animator.add(epoch + (i + 1) / num_batches,
                              (train_l, train_acc, None))
+        # 测试精度
         test_acc = evaluate_accuracy_gpu(net, test_iter)  # 测试集准确率
         animator.add(epoch + 1, (None, None, test_acc)) # 更新测试集准确率曲线
     print(f'最终结果：loss {train_l:.3f}, train acc {train_acc:.3f}, '
-          f'test acc {test_acc:.3f}')
+          f'test acc {test_acc:.3f}') # 输出损失值、训练精度、测试精度
     print(f'训练速度（样本数/总时间）：{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
-          f'on {str(device)}')
+          f'on {str(device)}') # 设备的计算能力
 
 
 
