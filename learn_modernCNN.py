@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 import common
 
 
@@ -161,6 +162,94 @@ def learn_NiN():
     lr, num_epochs, batch_size = 0.1, 10, 128 # 学习率，训练轮数，(批量大小)每轮训练图像张数
     train_iter, test_iter = common.load_data_fashion_mnist(batch_size, resize=224)
     common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+
+# learn_NiN()
+
+
+def learn_GoogLeNet():
+    class Inception(nn.Module):
+        # c1--c4是每条路径的输出通道数
+        def __init__(self, in_channels, c1, c2, c3, c4, **kwargs):
+            super(Inception, self).__init__(**kwargs)
+            # 线路1，单1x1卷积层
+            self.p1_1 = nn.Conv2d(in_channels, c1, kernel_size=1)
+            # 线路2，1x1卷积层 后接 3x3卷积层
+            self.p2_1 = nn.Conv2d(in_channels, c2[0], kernel_size=1)
+            self.p2_2 = nn.Conv2d(c2[0], c2[1], kernel_size=3, padding=1)
+            # 线路3，1x1卷积层 后接 5x5卷积层
+            self.p3_1 = nn.Conv2d(in_channels, c3[0], kernel_size=1)
+            self.p3_2 = nn.Conv2d(c3[0], c3[1], kernel_size=5, padding=2)
+            # 线路4，3x3最大汇聚层 后接 1x1卷积层
+            self.p4_1 = nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
+            self.p4_2 = nn.Conv2d(in_channels, c4, kernel_size=1)
+
+        def forward(self, x): # 通过不同大小的卷积核捕捉多尺度特征，最后在通道维度拼接
+            p1 = F.relu(self.p1_1(x))
+            p2 = F.relu(self.p2_2(F.relu(self.p2_1(x))))
+            p3 = F.relu(self.p3_2(F.relu(self.p3_1(x))))
+            p4 = F.relu(self.p4_2(self.p4_1(x)))
+            # 在通道维度上连结输出
+            return torch.cat((p1, p2, p3, p4), dim=1)
+
+    # 网络整体构架：由5个模块(b1-b5)串联组成：
+    # 模块b1：初始卷积
+    # 通过大步长(2)和池化层快速降低空间维度
+    b1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3),  # 输出: 64@48x48
+                       nn.ReLU(),
+                       nn.MaxPool2d(kernel_size=3, stride=2, padding=1))      # 输出: 64@24x24
+
+    # 模块b2：中间卷积
+    # 使用1x1卷积降维后 再用3x3卷积提取特征
+    # 进一步通过池化降低分辨率
+    b2 = nn.Sequential(nn.Conv2d(64, 64, kernel_size=1),          # 1x1卷积
+                       nn.ReLU(),
+                       nn.Conv2d(64, 192, kernel_size=3, padding=1), # 3x3卷积
+                       nn.ReLU(),
+                       nn.MaxPool2d(kernel_size=3, stride=2, padding=1))      # 输出: 192@12x12
+
+    # 模块b3：第一个Inception块组
+    # 包含 2个Inception模块 和 池化层
+    # 通道数逐步增加(192→256→480)
+    b3 = nn.Sequential(Inception(192, 64, (96, 128), (16, 32), 32),   # 输出通道: 64+128+32+32=256
+                       Inception(256, 128, (128, 192), (32, 96), 64), # 输出通道: 128+192+96+64=480
+                       nn.MaxPool2d(kernel_size=3, stride=2, padding=1))  # 输出: 480@6x6
+
+    # 模块b4：第二个Inception块组
+    # 包含 5个Inception模块 和 池化层
+    # 通道数先保持(480→512)后增加(512→528→832)
+    b4 = nn.Sequential(Inception(480, 192, (96, 208), (16, 48), 64),    # 输出: 192+208+48+64=512
+                       Inception(512, 160, (112, 224), (24, 64), 64),   # 输出: 160+224+64+64=512
+                       Inception(512, 128, (128, 256), (24, 64), 64),   # 输出: 112+288+64+64=528
+                       Inception(512, 112, (144, 288), (32, 64), 64),   # 输出: 112+288+64+64=528
+                       Inception(528, 256, (160, 320), (32, 128), 128), # 输出: 256+320+128+128=832
+                       nn.MaxPool2d(kernel_size=3, stride=2, padding=1))  # 输出: 832@3x3
+
+    # 模块b5：最终分类部分
+    # 包含2个Inception模块
+    # 通过全局平均池化将特征图降为1x1
+    # 最后展平为向量供全连接层使用
+    b5 = nn.Sequential(Inception(832, 256, (160, 320), (32, 128), 128),  # 输出: 256+320+128+128=832
+                       Inception(832, 384, (192, 384), (48, 128), 128),  # 输出: 384+384+128+128=1024
+                       nn.AdaptiveAvgPool2d((1,1)),   # 全局平均池化 → 1024@1x1 ，用于替代全连接层，减少参数量
+                       nn.Flatten())                  # 展平为1024维向量
+
+    # 完整网络 最终输出层：1024维 → 10类(Fashion-MNIST)
+    net = nn.Sequential(b1, b2, b3, b4, b5, nn.Linear(1024, 10))
+
+    X = torch.rand(size=(1, 1, 96, 96)) # 输入96x96图像，最终输出(1,10)
+    for layer in net:
+        X = layer(X)
+        print(layer.__class__.__name__,'output shape:\t', X.shape)
+
+    lr, num_epochs, batch_size = 0.1, 10, 128 # 学习率，训练轮数，(批量大小)每轮训练图像张数
+    train_iter, test_iter = common.load_data_fashion_mnist(batch_size, resize=96)
+    common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+
+# learn_GoogLeNet()
+
+
+
+
 
 
 
