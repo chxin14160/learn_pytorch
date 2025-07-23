@@ -94,6 +94,7 @@ def learn_VGG():
             # 下一层输入通道数=当前层输出通道数
             in_channels = out_channels
 
+        # 前面循环结束后，out_channels的值会保留为conv_arch中最后一个元组的第二个元素，即512
         return nn.Sequential( # 组合完整网络
             *conv_blks, nn.Flatten(), # 展平特征图
             # 全连接层部分（经典VGG-11配置）
@@ -248,71 +249,120 @@ def learn_GoogLeNet():
 # learn_GoogLeNet()
 
 
-def batch_norm(X, gamma, beta, moving_mean, moving_var, eps, momentum):
-    # 通过is_grad_enabled来判断当前模式是训练模式还是预测模式
-    if not torch.is_grad_enabled():
-        # 如果是在预测模式下，直接使用传入的移动平均所得的均值和方差
-        X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
-    else:
-        assert len(X.shape) in (2, 4)
-        if len(X.shape) == 2:
-            # 使用全连接层的情况，计算特征维上的均值和方差
-            mean = X.mean(dim=0)
-            var = ((X - mean) ** 2).mean(dim=0)
+def learn_batchNorm():
+    '''
+    X: 输入数据，
+        可以是 全连接层的2D张量 (batch_size, features)
+        或      卷积层的4D张量 (batch_size, channels, height, width)
+    gamma      : 缩放参数(可学习)
+    beta       : 平移参数(可学习)
+    moving_mean: 移动平均均值(用于推理阶段)
+    moving_var : 移动平均方差(用于推理阶段)
+    eps        ：防止除零的小常数
+    momentum   ：移动平均的动量参数，控制移动平均的更新速度（默认 0.9）
+    '''
+    def batch_norm(X, gamma, beta, moving_mean, moving_var, eps, momentum):
+        # 通过is_grad_enabled来判断当前模式是训练模式(需要计算梯度)还是预测模式(不需要梯度)
+        if not torch.is_grad_enabled():
+            # 预测模式：直接使用传入的移动平均所得的均值moving_mean和方差moving_var(避免训练时计算的统计量干扰)
+            # 公式: (X - μ) / √(σ² + ε)，规范化输入(减去均值后除以标准差)
+            X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
         else:
-            # 使用二维卷积层的情况，计算通道维上（axis=1）的均值和方差。
-            # 这里我们需要保持X的形状以便后面可以做广播运算
-            mean = X.mean(dim=(0, 2, 3), keepdim=True)
-            var = ((X - mean) ** 2).mean(dim=(0, 2, 3), keepdim=True)
-        # 训练模式下，用当前的均值和方差做标准化
-        X_hat = (X - mean) / torch.sqrt(var + eps)
-        # 更新移动平均的均值和方差
-        moving_mean = momentum * moving_mean + (1.0 - momentum) * mean
-        moving_var = momentum * moving_var + (1.0 - momentum) * var
-    Y = gamma * X_hat + beta  # 缩放和移位
-    return Y, moving_mean.data, moving_var.data
+            # 训练模式：计算当前批次的均值和方差
+            assert len(X.shape) in (2, 4) # 检查输入维度（确保输入是2D(全连接)或4D(卷积)张量）
+            if len(X.shape) == 2:
+                # 使用全连接层的情况，沿样本batch维度（dim=0）计算特征维上的均值和方差
+                mean = X.mean(dim=0)
+                var = ((X - mean) ** 2).mean(dim=0) # 方差
+            else:
+                # 卷积层：沿（batch, height, width）维度计算均值和方差（保持通道维度）
+                # 使用二维卷积层的情况，计算通道维上（axis=1）的均值和方差。
+                # keepdim=True保持维度，即 保持X的形状以便后面可以做广播运算
+                # 结果形状为(1, channels, 1, 1)
+                mean = X.mean(dim=(0, 2, 3), keepdim=True)
+                var = ((X - mean) ** 2).mean(dim=(0, 2, 3), keepdim=True)
 
-class BatchNorm(nn.Module):
-    # num_features：完全连接层的输出数量或卷积层的输出通道数。
-    # num_dims：2表示完全连接层，4表示卷积层
-    def __init__(self, num_features, num_dims):
-        super().__init__()
-        if num_dims == 2:
-            shape = (1, num_features)
-        else:
-            shape = (1, num_features, 1, 1)
-        # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成1和0
-        self.gamma = nn.Parameter(torch.ones(shape))
-        self.beta = nn.Parameter(torch.zeros(shape))
-        # 非模型参数的变量初始化为0和1
-        self.moving_mean = torch.zeros(shape)
-        self.moving_var = torch.ones(shape)
+            # 标准化当前批次数据
+            # 训练模式下，用当前的均值和方差做标准化
+            X_hat = (X - mean) / torch.sqrt(var + eps) # eps：防止除零的小常数
+            # 更新移动平均的均值和方差（指数加权平均）（更新全局统计量）
+            # 公式: new_value = momentum * old_value + (1 - momentum) * current_value
+            # 较大的momentum值(接近1)会给历史值更大权重
+            moving_mean = momentum * moving_mean + (1.0 - momentum) * mean
+            moving_var = momentum * moving_var + (1.0 - momentum) * var
+        Y = gamma * X_hat + beta  # 应用比例系数和比例偏移，缩放（gamma）和移位（gamma）
+        return Y, moving_mean.data, moving_var.data  # 返回结果和更新后的移动平均值(使用.data获取不包含梯度的张量)
 
-    def forward(self, X):
-        # 如果X不在内存上，将moving_mean和moving_var
-        # 复制到X所在显存上
-        if self.moving_mean.device != X.device:
-            self.moving_mean = self.moving_mean.to(X.device)
-            self.moving_var = self.moving_var.to(X.device)
-        # 保存更新过的moving_mean和moving_var
-        Y, self.moving_mean, self.moving_var = batch_norm(
-            X, self.gamma, self.beta, self.moving_mean,
-            self.moving_var, eps=1e-5, momentum=0.9)
-        return Y
+    class BatchNorm(nn.Module):
+        # num_features：完全连接层的输出数量 或 卷积层的输出通道数
+        # num_dims：2表示完全连接层，4表示卷积层（区分全连接层（2D）和卷积层（4D））
+        def __init__(self, num_features, num_dims):
+            super().__init__()
+            # 根据输入类型（全连接层或卷积层）初始化形状
+            if num_dims == 2:
+                shape = (1, num_features) # 全连接层：形状为(1, num_features)
+            else:
+                shape = (1, num_features, 1, 1) # 卷积层：形状为(1, num_channels, 1, 1)
 
-net = nn.Sequential(
-    nn.Conv2d(1, 6, kernel_size=5), BatchNorm(6, num_dims=4), nn.Sigmoid(),
-    nn.AvgPool2d(kernel_size=2, stride=2),
-    nn.Conv2d(6, 16, kernel_size=5), BatchNorm(16, num_dims=4), nn.Sigmoid(),
-    nn.AvgPool2d(kernel_size=2, stride=2), nn.Flatten(),
-    nn.Linear(16*4*4, 120), BatchNorm(120, num_dims=2), nn.Sigmoid(),
-    nn.Linear(120, 84), BatchNorm(84, num_dims=2), nn.Sigmoid(),
-    nn.Linear(84, 10))
+            # 可训练参数：gamma（缩放）和 beta（偏移）
+            # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成1和0
+            self.gamma = nn.Parameter(torch.ones(shape)) # gamma初始化为1（保持初始尺度不变）
+            self.beta = nn.Parameter(torch.zeros(shape)) # beta初始化为0（保持初始偏移不变）
 
-lr, num_epochs, batch_size = 1.0, 10, 256
-train_iter, test_iter = common.load_data_fashion_mnist(batch_size)
-common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+            # 非训练参数：移动平均的均值和方差（初始化为0和1）
+            # 非模型参数的变量初始化为0和1（避免初始标准化干扰）
+            self.moving_mean = torch.zeros(shape)
+            self.moving_var = torch.ones(shape)
 
+        def forward(self, X):
+            # 确保移动平均统计量与输入数据在同一设备上（CPU/GPU）
+            # 如果X不在内存上，将moving_mean和moving_var
+            # 复制到X所在显存上
+            if self.moving_mean.device != X.device:
+                self.moving_mean = self.moving_mean.to(X.device)
+                self.moving_var = self.moving_var.to(X.device)
+
+            # 调用底层批归一化函数，并更新移动平均值
+            # 保存更新过的moving_mean和moving_var
+            Y, self.moving_mean, self.moving_var = batch_norm(
+                X, self.gamma, self.beta, self.moving_mean,
+                self.moving_var, eps=1e-5, momentum=0.9)
+            return Y
+
+    net = nn.Sequential(
+        # 卷积层 + BatchNorm + 激活函数
+        nn.Conv2d(1, 6, kernel_size=5), BatchNorm(6, num_dims=4), nn.Sigmoid(),
+        nn.AvgPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(6, 16, kernel_size=5), BatchNorm(16, num_dims=4), nn.Sigmoid(),
+        nn.AvgPool2d(kernel_size=2, stride=2),
+
+        nn.Flatten(),
+
+        # 全连接层 + BatchNorm + 激活函数
+        nn.Linear(16*4*4, 120), BatchNorm(120, num_dims=2), nn.Sigmoid(),
+        nn.Linear(120, 84), BatchNorm(84, num_dims=2), nn.Sigmoid(),
+        nn.Linear(84, 10)) # 输出层（无 BatchNorm 和激活函数）
+
+    lr, num_epochs, batch_size = 1.0, 10, 256 # 学习率，训练轮数，每轮处理的批量大小
+    train_iter, test_iter = common.load_data_fashion_mnist(batch_size) # 加载数据集
+    # common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu()) # 训练
+
+    print(f"从第一个批量规范化层中学到的\n"
+          f"拉伸参数 gamma：\n{net[1].gamma.reshape((-1,))},\n"
+          f"偏移参数 beta： \n{net[1].beta.reshape((-1,))}")
+
+    # 直接使用pytorch框架中的BatchNorm
+    net_useAPI = nn.Sequential(
+        nn.Conv2d(1, 6, kernel_size=5), nn.BatchNorm2d(6), nn.Sigmoid(),
+        nn.AvgPool2d(kernel_size=2, stride=2),
+        nn.Conv2d(6, 16, kernel_size=5), nn.BatchNorm2d(16), nn.Sigmoid(),
+        nn.AvgPool2d(kernel_size=2, stride=2), nn.Flatten(),
+        nn.Linear(256, 120), nn.BatchNorm1d(120), nn.Sigmoid(),
+        nn.Linear(120, 84), nn.BatchNorm1d(84), nn.Sigmoid(),
+        nn.Linear(84, 10))
+    common.train_ch6(net_useAPI, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+# learn_batchNorm()
 
 
 
