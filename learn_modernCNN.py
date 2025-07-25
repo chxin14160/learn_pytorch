@@ -365,109 +365,206 @@ def learn_batchNorm():
 # learn_batchNorm()
 
 
+def learn_ResNet():
+    class Residual(nn.Module):  #@save
+        def __init__(self, input_channels, num_channels,
+                     use_1x1conv=False, strides=1):
+            super().__init__()
+            # 两个输出通道数相同的3*3卷积层
+            self.conv1 = nn.Conv2d(input_channels, num_channels,
+                                   kernel_size=3, padding=1, stride=strides)
+            self.conv2 = nn.Conv2d(num_channels, num_channels,
+                                   kernel_size=3, padding=1)
+            # 可选的1x1卷积层（用于调整输入X的通道数和尺寸）
+            if use_1x1conv:
+                # 用于调整输入x的通道数和尺寸，使其能于y相加(即解决残差连接中的维度匹配问题)
+                self.conv3 = nn.Conv2d(input_channels, num_channels,
+                                       kernel_size=1, stride=strides)
+            else:
+                self.conv3 = None
+            # 批量归一化层，用于稳定训练过程
+            self.bn1 = nn.BatchNorm2d(num_channels)
+            self.bn2 = nn.BatchNorm2d(num_channels)
 
-class Residual(nn.Module):  #@save
-    def __init__(self, input_channels, num_channels,
-                 use_1x1conv=False, strides=1):
-        super().__init__()
-        # 两个输出通道数相同的3*3卷积层
-        self.conv1 = nn.Conv2d(input_channels, num_channels,
-                               kernel_size=3, padding=1, stride=strides)
-        self.conv2 = nn.Conv2d(num_channels, num_channels,
-                               kernel_size=3, padding=1)
-        # 可选的1x1卷积层（用于调整输入X的通道数和尺寸）
-        if use_1x1conv:
-            # 用于调整输入x的通道数和尺寸，使其能于y相加(即解决残差连接中的维度匹配问题)
-            self.conv3 = nn.Conv2d(input_channels, num_channels,
-                                   kernel_size=1, stride=strides)
-        else:
-            self.conv3 = None
-        # 批量归一化层，用于稳定训练过程
-        self.bn1 = nn.BatchNorm2d(num_channels)
-        self.bn2 = nn.BatchNorm2d(num_channels)
+        ''' 
+        第二个卷积层后没有直接加激活函数的原因：
+        1、是残差连接的需要，保证残差连接 X 和主路径 Y 的相加操作在线性空间中进行。
+        残差块的核心是恒等映射（identity mapping），即允许原始输入X直接传递到输出（Y += X）
+        若在conv2后直接加 eLU，残差X和主路径Y相加时，
+                X是线性值，而Y是非线性值（经过ReLU），可能导致相加后的结果表达能力受限
+        正确做法：先相加（Y+X），再对整体做非线性变换（ReLU），确保残差和主路径的交互更自然
+        2、避免 ReLU 截断梯度，提升训练稳定性。
+        3、遵循ResNet的原始设计，保持梯度流动。
+        最终激活在相加后统一应用，确保非线性能力。
+        这种设计是残差网络能够训练极深模型的关键之一！
+        '''
+        def forward(self, X):
+            # 第一条路径（主路径）：经过两个卷积层
+            Y = F.relu(self.bn1(self.conv1(X))) # 卷积1 + BN + ReLU
+            Y = self.bn2(self.conv2(Y))         # 卷积2 + BN（注意：这里没有ReLU！）
+            # 第二条路径（残差连接）：残差连接（直接传递X或通过1x1卷积调整）
+            if self.conv3:
+                X = self.conv3(X)   # 调整X的维度
+            Y += X                  # 跳过两个卷积将输入直接加进来（残差相加）
+            return F.relu(Y) # 对相加后的结果应用ReLU（在相加后统一激活）
 
-    ''' 
-    第二个卷积层后没有直接加激活函数的原因：
-    1、是残差连接的需要，保证残差连接 X 和主路径 Y 的相加操作在线性空间中进行。
-    残差块的核心是恒等映射（identity mapping），即允许原始输入X直接传递到输出（Y += X）
-    若在conv2后直接加 eLU，残差X和主路径Y相加时，
-            X是线性值，而Y是非线性值（经过ReLU），可能导致相加后的结果表达能力受限
-    正确做法：先相加（Y+X），再对整体做非线性变换（ReLU），确保残差和主路径的交互更自然
-    2、避免 ReLU 截断梯度，提升训练稳定性。
-    3、遵循ResNet的原始设计，保持梯度流动。
-    最终激活在相加后统一应用，确保非线性能力。
-    这种设计是残差网络能够训练极深模型的关键之一！
+    blk = Residual(3,3)
+    X = torch.rand(4, 3, 6, 6)
+    Y = blk(X)
+    print(f"输出形状：{Y.shape}")
+
+    blk = Residual(3,6, use_1x1conv=True, strides=2)
+    print(f"增加输出通道数的同时，输出的高和宽减半 \n此时的输出形状：{blk(X).shape}")
+
+    # 初始卷积块 b1：高分辨率 → 低分辨率（下采样）
+    b1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), # 输入通道1(灰度图)，输出通道64
+                       nn.BatchNorm2d(64), nn.ReLU(), # 激活函数，批量归一化
+                       nn.MaxPool2d(kernel_size=3, stride=2, padding=1)) # 最大池化（进一步下采样）
+
     '''
-    def forward(self, X):
-        # 第一条路径（主路径）：经过两个卷积层
-        Y = F.relu(self.bn1(self.conv1(X))) # 卷积1 + BN + ReLU
-        Y = self.bn2(self.conv2(Y))         # 卷积2 + BN（注意：这里没有ReLU！）
-        # 第二条路径（残差连接）：残差连接（直接传递X或通过1x1卷积调整）
-        if self.conv3:
-            X = self.conv3(X)   # 调整X的维度
-        Y += X                  # 跳过两个卷积将输入直接加进来（残差相加）
-        return F.relu(Y) # 对相加后的结果应用ReLU（在相加后统一激活）
+    input_channels  ：输入通道数
+    num_channels    ：输出通道数
+    num_residuals   ：当前阶段堆叠的残差块数量
+    first_block     ：是否为网络的第一个残差阶段（避免首层下采样）
+    '''
+    def resnet_block(input_channels, num_channels, num_residuals,
+                     first_block=False):
+        blk = []
+        for i in range(num_residuals):
+            if i == 0 and not first_block:
+                # 第一个块且非首层时，需调整维度（通道数+下采样）
+                # 使用 use_1x1conv=True 和 strides=2 调整输入维度(通道数和尺寸)，使其能与后续块相加
+                blk.append(Residual(input_channels, num_channels,
+                                    use_1x1conv=True, strides=2))
+            else:
+                # 普通残差块：直接堆叠Residual(num_channels, num_channels)，(通道数不变，无下采样)
+                blk.append(Residual(num_channels, num_channels))
+        return blk
 
-blk = Residual(3,3)
-X = torch.rand(4, 3, 6, 6)
-Y = blk(X)
-print(f"输出形状：{Y.shape}")
+    # 残差块 b2-b5：堆叠多个残差块，逐步增加通道数并可能下采样
+    b2 = nn.Sequential(*resnet_block(64, 64, 2, first_block=True))   # 64→64，2个残差块，无下采样
+    # b3-b5：
+    # 每个阶段的第一个残差块会通过 strides=2 下采样，并增加通道数（64→128→256→512）
+    # 后续残差块保持当前通道数和尺寸
+    b3 = nn.Sequential(*resnet_block(64, 128, 2))   # 64→128，2个残差块，第一个块会下采样
+    b4 = nn.Sequential(*resnet_block(128, 256, 2))  # 128→256，同上
+    b5 = nn.Sequential(*resnet_block(256, 512, 2))  # 256→512，同上
 
-blk = Residual(3,6, use_1x1conv=True, strides=2)
-print(f"增加输出通道数的同时，输出的高和宽减半 \n此时的输出形状：{blk(X).shape}")
+    net = nn.Sequential(b1, b2, b3, b4, b5,  # 特征提取部分
+                        # 全局平均池化 + 全连接层：将特征图转换为分类输出
+                        nn.AdaptiveAvgPool2d((1,1)),  # 全局平均池化，输出尺寸为1x1（无论输入特征图尺寸如何，均池化为 1x1（适应不同输入尺寸））
+                        nn.Flatten(),        # 展平为向量，将 1x1x512 的特征图展平为 512 维向量
+                        nn.Linear(512, 10))   # 全连接层，输出10类 (10个类别的得分)
 
-# 初始卷积块 b1：高分辨率 → 低分辨率（下采样）
-b1 = nn.Sequential(nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), # 输入通道1(灰度图)，输出通道64
-                   nn.BatchNorm2d(64), nn.ReLU(), # 激活函数，批量归一化
-                   nn.MaxPool2d(kernel_size=3, stride=2, padding=1)) # 最大池化（进一步下采样）
+    # 网络前向传播测试
+    X = torch.rand(size=(1, 1, 224, 224)) # 创建一个随机输入张量（模拟224x224的灰度图像）
+    for layer in net:
+        X = layer(X) # 逐层通过网络
+        print(layer.__class__.__name__,'output shape:\t', X.shape) # 每层的输出形状
 
-'''
-input_channels  ：输入通道数
-num_channels    ：输出通道数
-num_residuals   ：当前阶段堆叠的残差块数量
-first_block     ：是否为网络的第一个残差阶段（避免首层下采样）
-'''
-def resnet_block(input_channels, num_channels, num_residuals,
-                 first_block=False):
-    blk = []
-    for i in range(num_residuals):
-        if i == 0 and not first_block:
-            # 第一个块且非首层时，需调整维度（通道数+下采样）
-            # 使用 use_1x1conv=True 和 strides=2 调整输入维度(通道数和尺寸)，使其能与后续块相加
-            blk.append(Residual(input_channels, num_channels,
-                                use_1x1conv=True, strides=2))
-        else:
-            # 普通残差块：直接堆叠Residual(num_channels, num_channels)，(通道数不变，无下采样)
-            blk.append(Residual(num_channels, num_channels))
-    return blk
-
-# 残差块 b2-b5：堆叠多个残差块，逐步增加通道数并可能下采样
-b2 = nn.Sequential(*resnet_block(64, 64, 2, first_block=True))   # 64→64，2个残差块，无下采样
-# b3-b5：
-# 每个阶段的第一个残差块会通过 strides=2 下采样，并增加通道数（64→128→256→512）
-# 后续残差块保持当前通道数和尺寸
-b3 = nn.Sequential(*resnet_block(64, 128, 2))   # 64→128，2个残差块，第一个块会下采样
-b4 = nn.Sequential(*resnet_block(128, 256, 2))  # 128→256，同上
-b5 = nn.Sequential(*resnet_block(256, 512, 2))  # 256→512，同上
-
-net = nn.Sequential(b1, b2, b3, b4, b5,  # 特征提取部分
-                    # 全局平均池化 + 全连接层：将特征图转换为分类输出
-                    nn.AdaptiveAvgPool2d((1,1)),  # 全局平均池化，输出尺寸为1x1（无论输入特征图尺寸如何，均池化为 1x1（适应不同输入尺寸））
-                    nn.Flatten(),        # 展平为向量，将 1x1x512 的特征图展平为 512 维向量
-                    nn.Linear(512, 10))   # 全连接层，输出10类 (10个类别的得分)
-
-# 网络前向传播测试
-X = torch.rand(size=(1, 1, 224, 224)) # 创建一个随机输入张量（模拟224x224的灰度图像）
-for layer in net:
-    X = layer(X) # 逐层通过网络
-    print(layer.__class__.__name__,'output shape:\t', X.shape) # 每层的输出形状
-
-lr, num_epochs, batch_size = 0.05, 10, 256 # 学习率，训练轮数，批量大小
-train_iter, test_iter = common.load_data_fashion_mnist(batch_size, resize=96)
-common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+    lr, num_epochs, batch_size = 0.05, 10, 256 # 学习率，训练轮数，批量大小
+    train_iter, test_iter = common.load_data_fashion_mnist(batch_size, resize=96)
+    common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+# learn_ResNet()
 
 
+def learn_denseNet():
+    """
+    稠密网络：
+            1、稠密块：定义如果连接输入和输出
+            2、过渡层：后者控制通道数
+    """
+    # 基础卷积块 (BN → ReLU → conv2d)
+    def conv_block(input_channels, num_channels):
+        return nn.Sequential(
+            nn.BatchNorm2d(input_channels), nn.ReLU(), # 批量归一化、激活函数
+            nn.Conv2d(input_channels, num_channels, kernel_size=3, padding=1)) # 3*3卷积
 
+    '''
+    # 包含num_convs个卷积块的 稠密块
+    num_convs       ：稠密块中的卷积层数量
+    input_channels  ：输入张量的通道数
+    num_channels    ：每个卷积层输出的通道数（即增长率 k）
+    '''
+    class DenseBlock(nn.Module):
+        def __init__(self, num_convs, input_channels, num_channels):
+            super(DenseBlock, self).__init__()
+            layer = []
+            # 随着层数增加，通道数线性增长（每层增加num_channels）
+            for i in range(num_convs):
+                layer.append(conv_block(
+                    num_channels * i + input_channels, num_channels))
+            self.net = nn.Sequential(*layer) # 所有卷积块按顺序存入self.net（nn.Sequential容器）
 
+        # 逐层处理输入，并将每一层的输出与原始输入拼接
+        def forward(self, X):
+            for blk in self.net:
+                Y = blk(X) # 通过当前卷积块
+                # 连接通道维度上每个块的输入和输出
+                # 特征拼接：将 当前层的输出Y 之前的所有特征X 在通道维度(dim=1)上 拼接
+                X = torch.cat((X, Y), dim=1) # 拼接输入和输出（通道维度）
+            return X
+
+    blk = DenseBlock(2, 3, 10)  # 2层卷积，输入通道3，增长率10
+    X = torch.randn(4, 3, 8, 8) # 输入：batch_size=4, 通道=3, 高8, 宽8（4张3通道的8×8图像）
+    Y = blk(X)
+    print(f"输出形状：{Y.shape}")
+
+    # 过渡层：再稠密块之间降低特征图的 通道数和空间尺寸 (高和宽减半)
+    def transition_block(input_channels, num_channels):
+        return nn.Sequential(
+            nn.BatchNorm2d(input_channels), nn.ReLU(),              # 批量归一化、激活函数
+            nn.Conv2d(input_channels, num_channels, kernel_size=1), # 1*1卷积层，减少通道数(input_channels → num_channels)
+            nn.AvgPool2d(kernel_size=2, stride=2))                  # 平均汇聚(池化) 高宽减半(stride=2)
+
+    blk = transition_block(23, 10) # 输入(4,23,8,8) → 输出(4,10,4,4)
+    print(f"输出的通道数减为10，高和宽均减半 \n此时的输出形状：{blk(Y).shape}")
+
+    # 构建DenseNet
+    # 首先，使用和ResNet一样的卷积层和最大汇聚层
+    # 初始卷积块：处理输入图像，提取初始特征
+    b1 = nn.Sequential(
+        nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3), # 输入1通道→输出64通道，空间尺寸减半(28×28 → 14×14)
+        nn.BatchNorm2d(64), nn.ReLU(),
+        nn.MaxPool2d(kernel_size=3, stride=2, padding=1)) # 3*3最大池化，空间尺寸再减半(14×14 → 7×7)
+
+    """
+    DenseNet使用4个稠密块：
+    1、稠密块里的卷积层通道数（即增长率）设为32，每个稠密块将增加4x32=128个通道
+    2、每个模块之间，DenseNet使用过渡层减半高度和宽度，并减半通道数
+    """
+    # num_channels 为当前的通道数
+    # growth_rate 为增长率，即输出通道相对于输入通道的增长程度，即每个卷积层输出的通道数
+    num_channels, growth_rate = 64, 32 # 初始通道数64，增长率32
+    # 4个稠密块，每个稠密块4个卷积层，每个稠密块增加4x32=128个通道
+    num_convs_in_dense_blocks = [4, 4, 4, 4] # 每个稠密块包含4个卷积层
+
+    # 构建稠密块和过渡层
+    blks = []
+    for i, num_convs in enumerate(num_convs_in_dense_blocks):
+        blks.append(DenseBlock(num_convs, num_channels, growth_rate))
+        # 上一个稠密块的输出通道数
+        # 更新通道数(稠密块输出拼接后通道数增加)：
+        # 原通道数num_channels+新增通道数(4层卷积*每个产生32通道 即32增长率 即卷积层输出通道数32=新增128通道)，
+        num_channels += num_convs * growth_rate
+        # 在稠密块之间添加一个转换层，使通道数量减半
+        if i != len(num_convs_in_dense_blocks) - 1: # 如果不是最后一个稠密块，添加过渡层
+            blks.append(transition_block(num_channels, num_channels // 2))
+            num_channels = num_channels // 2  # 过渡层减半通道数
+
+    net = nn.Sequential(
+        b1, *blks, # 初始卷积块 + 稠密块 + 过渡层
+        nn.BatchNorm2d(num_channels), nn.ReLU(),    # 最终批归一化 + ReLU
+        nn.AdaptiveAvgPool2d((1, 1)),               # 全局平均池化 →(batch_size,channels,1,1)，将空间维度(H,W)压缩为(1,1)，保留通道信息
+        nn.Flatten(),                               # 展平 → (batch_size, channels)
+        nn.Linear(num_channels, 10))     # 全连接层（10类分类）
+
+    # 训练模型
+    # 由于模型较深，这里将输入高度和宽度从224降为96
+    lr, num_epochs, batch_size = 0.1, 10, 256
+    train_iter, test_iter = common.load_data_fashion_mnist(batch_size, resize=96)
+    common.train_ch6(net, train_iter, test_iter, num_epochs, lr, common.try_gpu())
+
+learn_denseNet()
 
 
