@@ -513,7 +513,7 @@ net.apply(init_weights) # 递归应用初始化函数到所有层
 # torch.optim.SGD随机梯度下降优化器。SGD 是常用的优化算法，用于在训练过程中更新神经网络的参数，以最小化损失函数
 # net.parameters() 返回模型中所有可训练参数（权重和偏置）的生成器。这些参数将在训练过程中被优化器更新
 trainer = torch.optim.SGD(net.parameters(), lr=lr)
-train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
+# train_ch3(net, train_iter, test_iter, loss, num_epochs, trainer)
 ''' 暂退法Dropout 结束 '''
 
 
