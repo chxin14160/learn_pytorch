@@ -22,95 +22,6 @@ import requests
 
 
 
-# 下载器类：下载和缓存数据集
-class C_Downloader:
-    def __init__(self, data_url = 'http://d2l-data.s3-accelerate.amazonaws.com/'):
-        # DATA_HUB字典，将数据集名称的字符串映射到数据集相关的二元组上
-        # DATA_HUB为二元组：包含数据集的url和验证文件完整性的sha-1密钥
-        self.DATA_HUB = dict()
-        self.DATA_URL = data_url # 数据集托管在地址为DATA_URL的站点上
-
-    ''' download
-    下载数据集，将数据集缓存在本地目录（默认为../data）中，并返回下载文件的名称
-    若缓存目录中已存在此数据集文件，且其sha-1与存储在DATA_HUB中的相匹配，则使用缓存的文件，以避免重复的下载
-    name：要下载的文件名，必须在DATA_HUB中存在
-    cache_dir：缓存目录，默认为../data
-    sha-1：安全散列算法1
-    '''
-    def download(self, name, cache_dir=os.path.join('..', 'data')):  # @save
-        """下载一个DATA_HUB中的文件，返回本地文件名"""
-        # 检查指定的文件名是否存在于DATA_HUB中
-        # 如果不存在，则抛出断言错误，提示用户该文件不存在
-        # 断言检查：确保name在DATA_HUB中存在，避免下载不存在的文件
-        assert name in self.DATA_HUB, f"{name} 不存在于 {self.DATA_HUB}"
-        url, sha1_hash = self.DATA_HUB[name] # 从DATA_HUB中获取该文件的URL和SHA-1哈希值
-
-        # 若目录不存在，则创建目录
-        # exist_ok=True：若目录已存在，也不会抛出错误
-        os.makedirs(cache_dir, exist_ok=True)
-
-        # 构建本地文件路径
-        # 从URL中提取文件名（通过分割URL字符串获取最后一个部分）
-        # 并将该文件名与缓存目录组合成完整的本地文件路径
-        fname = os.path.join(cache_dir, url.split('/')[-1])
-
-        if os.path.exists(fname): # 检查本地文件是否已存在
-            sha1 = hashlib.sha1() # 计算本地文件的SHA-1哈希值(shal.sha1()：创建一个字符串hashlib_，并将其加密后传入)
-            with open(fname, 'rb') as f:
-                # 读取文件内容，每次读取1MB的数据块，以避免大文件占用过多内存
-                while True:
-                    data = f.read(1048576) # 1048576 bytes = 1MB
-                    if not data:
-                        break
-                    sha1.update(data) # 更新哈希值
-
-            # 比较计算出的哈希值与DATA_HUB中存储的哈希值
-            if sha1.hexdigest() == sha1_hash:
-                # 若哈希值匹配，说明文件完整且未被篡改，直接返回本地文件路径（命中缓存）
-                return fname  # 命中缓存
-
-        # 如果本地文件不存在或哈希值不匹配，则从URL下载文件
-        print(f'正在从{url}下载{fname}...')
-
-        # 使用requests库发起HTTP GET请求，stream=True表示以流的方式下载大文件
-        # verify=True表示验证SSL证书（确保下载的安全性）
-        r = requests.get(url, stream=True, verify=True)
-
-        # 将下载的内容写入到本地文件中
-        with open(fname, 'wb') as f:
-            f.write(r.content) # 将请求的内容写入文件
-        return fname # 返回本地文件路径
-
-    ''' 
-    下载并解压一个zip或tar文件
-    name：要下载并解压的文件名，必须在DATA_HUB中存在
-    folder：解压后的目标文件夹名（可选）
-    '''
-    def download_extract(self, name, folder=None):  # @save
-        """下载并解压zip/tar文件"""
-        fname = self.download(name) # 调用download函数下载指定的文件，获取本地文件路径
-        base_dir = os.path.dirname(fname) # 获取缓存目录路径（即下载文件所在的目录）
-        data_dir, ext = os.path.splitext(fname) # 分离文件名和扩展名
-
-        if ext == '.zip':               # 如果是zip文件，使用zipfile.ZipFile 打开文件
-            fp = zipfile.ZipFile(fname, 'r')
-        elif ext in ('.tar', '.gz'):    # 如果是tar或gz文件，使用tarfile.open 打开文件
-            fp = tarfile.open(fname, 'r')
-        else:                           # 如果文件扩展名不是zip、tar或gz，抛出断言错误
-            assert False, '只有zip/tar文件可以被解压缩'
-
-        fp.extractall(base_dir) # 将文件解压到缓存目录中
-        # 返回解压后的路径
-        # 如果指定了folder参数，返回解压后的目标文件夹路径
-        # 否则返回解压后的文件路径（即去掉扩展名的文件名）
-        return os.path.join(base_dir, folder) if folder else data_dir
-
-    # 将使用的所有数据集从DATA_HUB下载到缓存目录中
-    def download_all(self):  # @save
-        """下载DATA_HUB中的所有文件"""
-        for name in self.DATA_HUB:
-            self.download(name)
-
 
 def try_gpu(i=0):  #@save
     """如果存在，则返回gpu(i)，否则返回cpu()"""
@@ -174,6 +85,54 @@ def synthetic_data(w, b, num_examples):  # @save
     y += torch.normal(0, 0.01, y.shape)  # 添加噪声（均值为0，标准差为0.01的正态分布）使数据更接近真实场景（避免完全线性可分）
     return X, y.reshape((-1, 1))  # 返回特征矩阵X和标签向量y, y.reshape((-1, 1)) 确保y是列向量（形状为 (num_examples, 1)）
 
+
+# 封装了 Matplotlib 轴属性的常用设置
+def set_axes(axes, xlabel=None, ylabel=None, xlim=None, ylim=None,
+             xscale='linear', yscale='linear', legend=None):
+    """设置绘图的轴属性"""
+    if xlabel: axes.set_xlabel(xlabel)  # 设置x轴标签（如果提供）
+    if ylabel: axes.set_ylabel(ylabel)  # 设置y轴标签（如果提供）
+    if xlim: axes.set_xlim(xlim)        # 设置x轴范围（如 [0, 10]）（如果提供）
+    if ylim: axes.set_ylim(ylim)        # 设置y轴范围（如 [0, 10]）（如果提供）
+    axes.set_xscale(xscale)         # 设置x轴刻度类型（线性linear或对数log）
+    axes.set_yscale(yscale)         # 设置y轴刻度类型（线性linear或对数log）
+    if legend: axes.legend(legend)  # 添加图例文本列表（如 ['train', 'test']）（如果提供）
+    axes.grid(True)                 # 显示背景网格线，提升可读性
+
+# 绘图函数
+def plot(X, Y=None, xlabel=None, ylabel=None, legend=None,
+         xlim=None, ylim=None, xscale='linear', yscale='linear',
+         fmts=('-', 'm--', 'g-.', 'r:'), figsize=(5, 2.5), axes=None):
+    """绘制数据点"""
+    if legend is None: legend = [] # 默认图例为空列表（避免后续判断报错）
+    # 创建画布（如果未提供外部axes）
+    plt.figure(figsize=figsize)
+    axes = axes if axes is not None else plt.gca()  # 获取当前轴
+
+    # 如果X有一个轴，输出True。判断输入数据是否为一维（列表或一维数组）
+    def has_one_axis(X):
+        return (hasattr(X, "ndim") and X.ndim == 1 or isinstance(X, list)
+                and not hasattr(X[0], "__len__"))
+
+    # 标准化X和Y的形状：确保X和Y都是列表的列表（支持多条曲线）
+    if has_one_axis(X):
+        X = [X]  # 将一维X转换为二维（单条曲线）
+    if Y is None: # 如果未提供Y，则X是Y的值，X轴为索引（如 plot(y)）
+        X, Y = [[]] * len(X), X
+    elif has_one_axis(Y):
+        Y = [Y] # 将一维Y转换为二维
+    if len(X) != len(Y): # 如果X和Y数量不匹配，复制X以匹配Y的数量
+        X = X * len(Y)
+
+    axes.clear() # 清空当前轴（避免重叠绘图）
+    for x, y, fmt in zip(X, Y, fmts):
+        if len(x): axes.plot(x, y, fmt) # 如果提供了x和y，绘制xy曲线
+        else: axes.plot(y, fmt) # 如果未提供x，绘制y关于索引的曲线（如 plot(y)）
+
+    set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend) # 设置轴属性
+    # 自动调整布局并显示图像
+    plt.tight_layout()  # 自动调整子图参数，使之填充整个图像区域，防止标签溢出
+    plt.show()
 
 def load_array(data_arrays, batch_size, is_train=True):
     dataset = TensorDataset(*data_arrays)
@@ -441,6 +400,95 @@ class Animator:  # @save
         plt.ioff()  # 关闭交互模式
         plt.close(self.fig)
 
+
+# 下载器类：下载和缓存数据集
+class C_Downloader:
+    def __init__(self, data_url = 'http://d2l-data.s3-accelerate.amazonaws.com/'):
+        # DATA_HUB字典，将数据集名称的字符串映射到数据集相关的二元组上
+        # DATA_HUB为二元组：包含数据集的url和验证文件完整性的sha-1密钥
+        self.DATA_HUB = dict()
+        self.DATA_URL = data_url # 数据集托管在地址为DATA_URL的站点上
+
+    ''' download
+    下载数据集，将数据集缓存在本地目录（默认为../data）中，并返回下载文件的名称
+    若缓存目录中已存在此数据集文件，且其sha-1与存储在DATA_HUB中的相匹配，则使用缓存的文件，以避免重复的下载
+    name：要下载的文件名，必须在DATA_HUB中存在
+    cache_dir：缓存目录，默认为../data
+    sha-1：安全散列算法1
+    '''
+    def download(self, name, cache_dir=os.path.join('..', 'data')):  # @save
+        """下载一个DATA_HUB中的文件，返回本地文件名"""
+        # 检查指定的文件名是否存在于DATA_HUB中
+        # 如果不存在，则抛出断言错误，提示用户该文件不存在
+        # 断言检查：确保name在DATA_HUB中存在，避免下载不存在的文件
+        assert name in self.DATA_HUB, f"{name} 不存在于 {self.DATA_HUB}"
+        url, sha1_hash = self.DATA_HUB[name] # 从DATA_HUB中获取该文件的URL和SHA-1哈希值
+
+        # 若目录不存在，则创建目录
+        # exist_ok=True：若目录已存在，也不会抛出错误
+        os.makedirs(cache_dir, exist_ok=True)
+
+        # 构建本地文件路径
+        # 从URL中提取文件名（通过分割URL字符串获取最后一个部分）
+        # 并将该文件名与缓存目录组合成完整的本地文件路径
+        fname = os.path.join(cache_dir, url.split('/')[-1])
+
+        if os.path.exists(fname): # 检查本地文件是否已存在
+            sha1 = hashlib.sha1() # 计算本地文件的SHA-1哈希值(shal.sha1()：创建一个字符串hashlib_，并将其加密后传入)
+            with open(fname, 'rb') as f:
+                # 读取文件内容，每次读取1MB的数据块，以避免大文件占用过多内存
+                while True:
+                    data = f.read(1048576) # 1048576 bytes = 1MB
+                    if not data:
+                        break
+                    sha1.update(data) # 更新哈希值
+
+            # 比较计算出的哈希值与DATA_HUB中存储的哈希值
+            if sha1.hexdigest() == sha1_hash:
+                # 若哈希值匹配，说明文件完整且未被篡改，直接返回本地文件路径（命中缓存）
+                return fname  # 命中缓存
+
+        # 如果本地文件不存在或哈希值不匹配，则从URL下载文件
+        print(f'正在从{url}下载{fname}...')
+
+        # 使用requests库发起HTTP GET请求，stream=True表示以流的方式下载大文件
+        # verify=True表示验证SSL证书（确保下载的安全性）
+        r = requests.get(url, stream=True, verify=True)
+
+        # 将下载的内容写入到本地文件中
+        with open(fname, 'wb') as f:
+            f.write(r.content) # 将请求的内容写入文件
+        return fname # 返回本地文件路径
+
+    ''' 
+    下载并解压一个zip或tar文件
+    name：要下载并解压的文件名，必须在DATA_HUB中存在
+    folder：解压后的目标文件夹名（可选）
+    '''
+    def download_extract(self, name, folder=None):  # @save
+        """下载并解压zip/tar文件"""
+        fname = self.download(name) # 调用download函数下载指定的文件，获取本地文件路径
+        base_dir = os.path.dirname(fname) # 获取缓存目录路径（即下载文件所在的目录）
+        data_dir, ext = os.path.splitext(fname) # 分离文件名和扩展名
+
+        if ext == '.zip':               # 如果是zip文件，使用zipfile.ZipFile 打开文件
+            fp = zipfile.ZipFile(fname, 'r')
+        elif ext in ('.tar', '.gz'):    # 如果是tar或gz文件，使用tarfile.open 打开文件
+            fp = tarfile.open(fname, 'r')
+        else:                           # 如果文件扩展名不是zip、tar或gz，抛出断言错误
+            assert False, '只有zip/tar文件可以被解压缩'
+
+        fp.extractall(base_dir) # 将文件解压到缓存目录中
+        # 返回解压后的路径
+        # 如果指定了folder参数，返回解压后的目标文件夹路径
+        # 否则返回解压后的文件路径（即去掉扩展名的文件名）
+        return os.path.join(base_dir, folder) if folder else data_dir
+
+    # 将使用的所有数据集从DATA_HUB下载到缓存目录中
+    def download_all(self):  # @save
+        """下载DATA_HUB中的所有文件"""
+        for name in self.DATA_HUB:
+            self.download(name)
 
 
 # import matplotlib.pyplot as plt
