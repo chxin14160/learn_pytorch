@@ -20,6 +20,8 @@ import tarfile
 import zipfile
 import requests
 
+import collections # 提供高性能的容器数据类型，替代Python的通用容器(如 dict, list, set, tuple)
+import re # 供正则表达式支持，用于字符串匹配、搜索和替换
 
 
 
@@ -489,6 +491,148 @@ class C_Downloader:
         """下载DATA_HUB中的所有文件"""
         for name in self.DATA_HUB:
             self.download(name)
+
+
+'''
+Vocab类：构建文本词表（Vocabulary），管理词元与索引的映射关系
+功能：
+构建词表，管理词元与索引的映射关系，支持：
+词元 → 索引（token_to_idx）
+索引 → 词元（idx_to_token）
+过滤低频词
+保留特殊词元（如 <unk>未知, <pad>填充符, <bos>起始符, <eos>结束符）
+'''
+class Vocab:  #@save
+    """文本词表"""
+    # tokens：原始词元列表（一维或二维）
+    # min_freq：最低词频阈值，低于此值的词会被过滤
+    # reserved_tokens：预定义的特殊词元（如 ["<pad>", "<bos>"]）
+    def __init__(self, tokens=None, min_freq=0, reserved_tokens=None):
+        if tokens is None: tokens = []
+        if reserved_tokens is None: reserved_tokens = []
+
+        # 统计词频，按出现频率排序
+        counter = count_corpus(tokens) # 统计词频
+        # key=lambda x: x[1] 指定排序依据为第二个元素
+        # reverse=True 降序排序
+        # _var：弱私有(Protected),
+        # 表示变量是内部使用的，提示开“不要从类外部直接访问”，但实际上仍然可访问(Python不会强制限制)
+        self._token_freqs = sorted(counter.items(), key=lambda x: x[1],
+                                   reverse=True) # 词元频率(词频)，按频率降序排序
+        # 初始化词表，未知词元的索引为0（<unk>）
+        # idx_to_token：索引 → 词元，索引0 默认是 <unk>（未知词元），后面是reserved_tokens
+        # token_to_idx：词元 → 索引，是 idx_to_token 的反向映射
+        self.idx_to_token = ['<unk>'] + reserved_tokens
+        self.token_to_idx = {token: idx
+                             for idx, token in enumerate(self.idx_to_token)} # 字典
+        # 按词频从高到低添加词元，过滤低频词
+        for token, freq in self._token_freqs:
+            if freq < min_freq: # 跳过低频词
+                break
+            if token not in self.token_to_idx: # 若词元不在token_to_idx中，则添加到词表
+                self.idx_to_token.append(token) # 压入新词元
+                self.token_to_idx[token] = len(self.idx_to_token) - 1 # 新词元对应的索引
+
+    # __len__用于定义对象的长度行为。对类的实例调用len()时，Python会自动调用该实例的__len__方法
+    def __len__(self): # 词表大小（包括 <unk> 和 reserved_tokens）
+        return len(self.idx_to_token) # 返回词表大小
+
+    # 词表索引查询：支持单个词元或词元列表查询 ↓
+    # vocab["hello"] → 返回索引（如 1）
+    # vocab[["hello", "world"]] → 返回索引列表 [1, 2]
+    # 若词元不存在，返回 unk 的索引（默认 0）
+    # __getitem__定义对象如何响应obj[key]这样的索引操作，实现后 实例可像列表或字典一样通过方括号[]访问元素
+    def __getitem__(self, tokens):
+        if not isinstance(tokens, (list, tuple)): # 若传入参数不为列表或元组，而是单个
+            # 字典的内置方法 dict.get(key, default) 用于安全地获取字典中某个键（key）对应的值
+            # 若键不存在，则返回指定的默认值（default），而不会抛出 KeyError 异常
+            return self.token_to_idx.get(tokens, self.unk)   # 单个词元返回索引，未知词返回0
+        return [self.__getitem__(token) for token in tokens] # 递归处理列表
+
+    # 索引转词元
+    # 支持单个索引或索引列表转换：
+    # vocab.to_tokens(1) → 返回词元（如 "hello"）
+    # vocab.to_tokens([1, 2]) → 返回词元列表 ["hello", "world"]
+    def to_tokens(self, indices):
+        if not isinstance(indices, (list, tuple)): # 若传入参数不为列表或元组，而是单个
+            return self.idx_to_token[indices]  # 单个索引返回词元
+        return [self.idx_to_token[index] for index in indices] # 递归处理列表
+
+    @property
+    def unk(self):  # 返回未知词元的索引（默认为0）
+        return 0
+
+    @property
+    def token_freqs(self): # 返回原始词频统计结果（降序排列）
+        return self._token_freqs # 返回词频统计结果
+
+# 辅助函数：统计词元（tokens）的频率，返回一个 Counter对象
+def count_corpus(tokens):  #@save
+    """统计词元的频率"""
+    # 这里的tokens是1D列表或2D列表
+    # 如果tokens是空列表或二维列表（如句子列表），则展平为一维列表
+    if len(tokens) == 0 or isinstance(tokens[0], list):
+        # 将词元列表展平成一个列表
+        tokens = [token for line in tokens for token in line]
+    # collections.Counter统计每个词元的出现次数，返回类似{"hello":2, "world":1}的字典
+    return collections.Counter(tokens)
+
+
+
+'''
+加载文本数据
+# 下载器与数据集配置
+# 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
+downloader = common.C_Downloader()
+DATA_HUB = downloader.DATA_HUB  # 字典，存储数据集名称与下载信息
+DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
+DATA_HUB['time_machine'] = (DATA_URL + 'timemachine.txt',
+                                '090b5e7e70c295757f55df93cb0a180b9691891a')
+'''
+def read_time_machine(downloader):  #@save
+    """将时间机器数据集加载到文本行的列表中"""
+    # 通过 downloader.download('time_machine') 获取文件路径
+    with open(downloader.download('time_machine'), 'r') as f:
+        lines = f.readlines() # 逐行读取文本文件
+    # 用正则表达式 [^A-Za-z]+ 替换所有非字母字符为空格
+    # 调用 strip() 去除首尾空格，lower() 转换为小写
+    # 返回值：处理后的文本行列表（每行是纯字母组成的字符串）
+    return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
+
+
+# 词元化函数：支持按单词或字符拆分文本
+# lines：预处理后的文本行列表
+# token：词元类型，可选 'word'（默认）或 'char
+# 返回值：嵌套列表，每行对应一个词元列表
+def tokenize(lines, token='word'):  #@save
+    """将文本行拆分为单词或字符词元"""
+    if token == 'word':
+        return [line.split() for line in lines]  # 按空格分词
+    elif token == 'char':
+        return [list(line) for line in lines]   # 按字符拆分
+    else:
+        print('错误：未知词元类型：' + token)
+
+
+# 获取《时光机器》的 词元索引序列和词表对象
+# max_tokens：限制返回的词元索引序列的最大长度（默认 -1 表示不限制）
+def load_corpus_time_machine(downloader, max_tokens=-1):  #@save
+    """返回时光机器数据集的词元索引列表和词表"""
+    lines = read_time_machine(downloader) # 加载文本数据，得到文本行列表
+    tokens = tokenize(lines, 'char') # 词元化：文本行列表→词元列表，按字符级拆分
+    vocab = Vocab(tokens) # 构建词表
+    # 因为时光机器数据集中的每个文本行不一定是一个句子或一个段落，
+    # 所以将所有文本行展平到一个列表中
+    # vocab[token] 查询词元的索引（若词元不存在，则返回0，即未知词索引）
+    # corpus：list，每个元素为词元的对应索引
+    corpus = [vocab[token] for line in tokens for token in line] # 展平词元并转换为索引
+    if max_tokens > 0: # 限制词元序列长度
+        corpus = corpus[:max_tokens] # 截断 corpus 到前 max_tokens 个词元
+    # corpus：词元索引列表（如 [1, 2, 3, ...]）
+    # vocab：Vocab对象，用于管理词元与索引的映射
+    return corpus, vocab
+
+
 
 
 # import matplotlib.pyplot as plt
