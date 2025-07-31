@@ -135,7 +135,6 @@ def learn_SequenceModel():
 # learn_SequenceModel()
 
 
-
 # 下载器与数据集配置
 # 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
 downloader = common.C_Downloader()
@@ -144,89 +143,129 @@ DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
 
 DATA_HUB['time_machine'] = (DATA_URL + 'timemachine.txt',
                                 '090b5e7e70c295757f55df93cb0a180b9691891a')
-# # 加载文本数据
-# def read_time_machine():  #@save
-#     """将时间机器数据集加载到文本行的列表中"""
-#     # 通过 downloader.download('time_machine') 获取文件路径
-#     with open(downloader.download('time_machine'), 'r') as f:
-#         lines = f.readlines() # 逐行读取文本文件
-#     # 用正则表达式 [^A-Za-z]+ 替换所有非字母字符为空格
-#     # 调用 strip() 去除首尾空格，lower() 转换为小写
-#     # 返回值：处理后的文本行列表（每行是纯字母组成的字符串）
-#     return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
-
-lines = common.read_time_machine(downloader)
-print(f'# 文本总行数: {len(lines)}')
-print(lines[0])     # 第1行内容
-print(lines[10])    # 第11行内容
-
-# # 词元化函数：支持按单词或字符拆分文本
-# # lines：预处理后的文本行列表
-# # token：词元类型，可选 'word'（默认）或 'char
-# # 返回值：嵌套列表，每行对应一个词元列表
-# def tokenize(lines, token='word'):  #@save
-#     """将文本行拆分为单词或字符词元"""
-#     if token == 'word':
-#         return [line.split() for line in lines]  # 按空格分词
-#     elif token == 'char':
-#         return [list(line) for line in lines]   # 按字符拆分
-#     else:
-#         print('错误：未知词元类型：' + token)
-
-tokens = common.tokenize(lines)
-for i in range(11):
-    print(f"第{i}行：{tokens[i]}")
-
-'''
-假设原始文本前两行为：
-The Time Machine, by H. G. Wells [1898]
-I
-预处理后：['the time machine by h g wells', 'i']
-词元化结果：[['the', 'time', 'machine', 'by', 'h', 'g', 'wells'], ['i']]
-'''
-
-vocab = common.Vocab(tokens) # 构建词表，管理词元与索引的映射关系
-print(f"前几个高频词及其索引：\n{list(vocab.token_to_idx.items())[:10]}")
-
-for i in [0, 10]: # 将每一条文本行转换成一个数字索引列表
-    print(f"第{i}行信息：")
-    print('文本:', tokens[i])
-    print('索引:', vocab[tokens[i]])
 
 
-# # 获取《时光机器》的 词元索引序列和词表对象
-# # max_tokens：限制返回的词元索引序列的最大长度（默认 -1 表示不限制）
-# def load_corpus_time_machine(max_tokens=-1):  #@save
-#     """返回时光机器数据集的词元索引列表和词表"""
-#     lines = read_time_machine() # 加载文本数据，得到文本行列表
-#     tokens = tokenize(lines, 'char') # 词元化：文本行列表→词元列表，按字符级拆分
-#     vocab = common.Vocab(tokens) # 构建词表
-#     # 因为时光机器数据集中的每个文本行不一定是一个句子或一个段落，
-#     # 所以将所有文本行展平到一个列表中
-#     # vocab[token] 查询词元的索引（若词元不存在，则返回0，即未知词索引）
-#     # corpus：list，每个元素为词元的对应索引
-#     corpus = [vocab[token] for line in tokens for token in line] # 展平词元并转换为索引
-#     if max_tokens > 0: # 限制词元序列长度
-#         corpus = corpus[:max_tokens] # 截断 corpus 到前 max_tokens 个词元
-#     # corpus：词元索引列表（如 [1, 2, 3, ...]）
-#     # vocab：Vocab对象，用于管理词元与索引的映射
-#     return corpus, vocab
+def learn_textPreprocess():
+    # # 加载文本数据
+    # def read_time_machine():  #@save
+    #     """将时间机器数据集加载到文本行的列表中"""
+    #     # 通过 downloader.download('time_machine') 获取文件路径
+    #     with open(downloader.download('time_machine'), 'r') as f:
+    #         lines = f.readlines() # 逐行读取文本文件
+    #     # 用正则表达式 [^A-Za-z]+ 替换所有非字母字符为空格
+    #     # 调用 strip() 去除首尾空格，lower() 转换为小写
+    #     # 返回值：处理后的文本行列表（每行是纯字母组成的字符串）
+    #     return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
 
-corpus, vocab = common.load_corpus_time_machine(downloader) # 加载数据
-print(f"corpus词元索引列表的长度：{len(corpus)}")
-print(f"词表大小：{len(vocab)}")
-print(f"词频统计（降序）：\n{vocab.token_freqs}")
-# 索引 ↔ 词元转换
-print(f"前10个索引对应的词元：\n{vocab.to_tokens(corpus[:10])}")
-print(f"前10个词元对应的索引：\n{corpus[:10]}")
-print(f"前10个词元对应的索引：\n{[idx for idx in corpus[:10]]}")
+    lines = common.read_time_machine(downloader)
+    print(f'# 文本总行数: {len(lines)}')
+    print(lines[0])     # 第1行内容
+    print(lines[10])    # 第11行内容
+
+    # # 词元化函数：支持按单词或字符拆分文本
+    # # lines：预处理后的文本行列表
+    # # token：词元类型，可选 'word'（默认）或 'char
+    # # 返回值：嵌套列表，每行对应一个词元列表
+    # def tokenize(lines, token='word'):  #@save
+    #     """将文本行拆分为单词或字符词元"""
+    #     if token == 'word':
+    #         return [line.split() for line in lines]  # 按空格分词
+    #     elif token == 'char':
+    #         return [list(line) for line in lines]   # 按字符拆分
+    #     else:
+    #         print('错误：未知词元类型：' + token)
+
+    tokens = common.tokenize(lines)
+    for i in range(11):
+        print(f"第{i}行：{tokens[i]}")
+
+    '''
+    假设原始文本前两行为：
+    The Time Machine, by H. G. Wells [1898]
+    I
+    预处理后：['the time machine by h g wells', 'i']
+    词元化结果：[['the', 'time', 'machine', 'by', 'h', 'g', 'wells'], ['i']]
+    '''
+
+    vocab = common.Vocab(tokens) # 构建词表，管理词元与索引的映射关系
+    print(f"前几个高频词及其索引：\n{list(vocab.token_to_idx.items())[:10]}")
+
+    for i in [0, 10]: # 将每一条文本行转换成一个数字索引列表
+        print(f"第{i}行信息：")
+        print('文本:', tokens[i])
+        print('索引:', vocab[tokens[i]])
 
 
-tokens = common.tokenize(common.read_time_machine(downloader))
+    # # 获取《时光机器》的 词元索引序列和词表对象
+    # # max_tokens：限制返回的词元索引序列的最大长度（默认 -1 表示不限制）
+    # def load_corpus_time_machine(max_tokens=-1):  #@save
+    #     """返回时光机器数据集的词元索引列表和词表"""
+    #     lines = read_time_machine() # 加载文本数据，得到文本行列表
+    #     tokens = tokenize(lines, 'char') # 词元化：文本行列表→词元列表，按字符级拆分
+    #     vocab = common.Vocab(tokens) # 构建词表
+    #     # 因为时光机器数据集中的每个文本行不一定是一个句子或一个段落，
+    #     # 所以将所有文本行展平到一个列表中
+    #     # vocab[token] 查询词元的索引（若词元不存在，则返回0，即未知词索引）
+    #     # corpus：list，每个元素为词元的对应索引
+    #     corpus = [vocab[token] for line in tokens for token in line] # 展平词元并转换为索引
+    #     if max_tokens > 0: # 限制词元序列长度
+    #         corpus = corpus[:max_tokens] # 截断 corpus 到前 max_tokens 个词元
+    #     # corpus：词元索引列表（如 [1, 2, 3, ...]）
+    #     # vocab：Vocab对象，用于管理词元与索引的映射
+    #     return corpus, vocab
+
+    corpus, vocab = common.load_corpus_time_machine(downloader) # 加载数据
+    print(f"corpus词元索引列表的长度：{len(corpus)}")
+    print(f"词表大小：{len(vocab)}")
+    print(f"词频统计（降序）：\n{vocab.token_freqs}")
+    # 索引 ↔ 词元转换
+    print(f"前10个索引对应的词元：\n{vocab.to_tokens(corpus[:10])}")
+    print(f"前10个词元对应的索引：\n{corpus[:10]}")
+    print(f"前10个词元对应的索引：\n{[idx for idx in corpus[:10]]}")
+# learn_textPreprocess()
+
+
+
+lines = common.read_time_machine(downloader) # 获取文本行列表
+tokens = common.tokenize(lines) # 将文本行列表中的元素词元化(按单词拆分)
 # 因为每个文本行不一定是一个句子或一个段落，因此把所有文本行拼接到一起
-corpus = [token for line in tokens for token in line]
+corpus = [token for line in tokens for token in line] # 将词元列表展平
 vocab = common.Vocab(corpus)
 print(f"前10个最常用的（频率最高的）单词：\n{vocab.token_freqs[:10]}")
+
+freqs = [freq for token, freq in vocab.token_freqs] # 词频(降序)
+common.plot(freqs, xlabel='token: x', ylabel='frequency: n(x)',
+         xscale='log', yscale='log') # 绘制(横坐标=词频索引，纵坐标=词频具体数值)
+
+# 词元组合(二元语法)
+bigram_tokens = [pair for pair in zip(corpus[:-1], corpus[1:])]
+bigram_vocab = common.Vocab(bigram_tokens)
+print(f"前10个最常用的（频率最高的）词元组合(二元语法)：\n{bigram_vocab.token_freqs[:10]}")
+
+# 词元组合(三元语法)
+trigram_tokens = [triple for triple in zip(corpus[:-2], corpus[1:-1], corpus[2:])]
+trigram_vocab = common.Vocab(trigram_tokens)
+print(f"前10个最常用的（频率最高的）词元组合(三元语法)：\n{trigram_vocab.token_freqs[:10]}")
+
+# 再直观对比 三种模型中的词元频率：一元语法、二元语法和三元语法
+bigram_freqs = [freq for token, freq in bigram_vocab.token_freqs]
+trigram_freqs = [freq for token, freq in trigram_vocab.token_freqs]
+common.plot([freqs, bigram_freqs, trigram_freqs], xlabel='token: x',
+         ylabel='frequency: n(x)', xscale='log', yscale='log',
+         legend=['unigram', 'bigram', 'trigram'])
+
+
+my_seq = list(range(35)) # 生成一个从0到34的序列
+# 批量大小为2，时间步数为5
+for idx, (X, Y) in enumerate(common.seq_data_iter_random(my_seq, batch_size=2, num_steps=5)):
+    print(f" 随机取样 —————— idx={idx} —————— \n"
+          f"X: {X}\nY:{Y}")
+
+for idx, (X, Y) in enumerate(common.seq_data_iter_sequential(my_seq, batch_size=2, num_steps=5)):
+    print(f" 顺序分区 —————— idx={idx} —————— \n"
+          f"X: {X}\nY:{Y}")
+
+
 
 
 
