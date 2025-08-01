@@ -22,6 +22,7 @@ import requests
 
 import collections # 提供高性能的容器数据类型，替代Python的通用容器(如 dict, list, set, tuple)
 import re # 供正则表达式支持，用于字符串匹配、搜索和替换
+import random
 
 
 
@@ -631,6 +632,106 @@ def load_corpus_time_machine(downloader, max_tokens=-1):  #@save
     # corpus：词元索引列表（如 [1, 2, 3, ...]）
     # vocab：Vocab对象，用于管理词元与索引的映射
     return corpus, vocab
+
+
+# 数据生成器：【随机采样】从长序列中随机抽取子序列，生成小批量数据
+# batch_size：指定每个小批量中子序列样本的数目
+# num_steps：每个子序列中预定义的时间步数(每个子序列长度)
+def seq_data_iter_random(corpus, batch_size, num_steps):  #@save
+    """使用随机抽样生成一个小批量子序列"""
+    # 从随机偏移量开始对序列进行分区，随机范围包括num_steps-1
+    # 随机范围若超过[0,num_steps-1]，则从num_steps开始，往后都会与已有的重复，且少了开头的部分子序列
+    # random.randint(0, num_steps-1) 生成一个随机整数offset，范围是[0, num_steps-1]
+    # corpus[random.randint(0, num_steps - 1):]截取从该偏移量到序列末尾的子序列
+    corpus = corpus[random.randint(0, num_steps - 1):] # 随机偏移起始位置
+    # 减去1，是因为需要考虑标签，标签是右移一位的序列
+    num_subseqs = (len(corpus) - 1) // num_steps # 总可用 子序列数
+
+    # 生成随机起始索引：长度为num_steps 的子序列 的起始索引
+    initial_indices = list(range(0, num_subseqs * num_steps, num_steps)) # 起始索引列表
+    # 在随机抽样的迭代过程中，来自两个相邻的、随机的、小批量中的子序列不一定在原始序列上相邻
+    random.shuffle(initial_indices) # 随机打乱顺序
+
+    def data(pos): # 返回从pos位置开始的长度为num_steps的序列
+        return corpus[pos: pos + num_steps]
+
+    # 序列长度35，时间步数5，则最多可有(35-1)/5=34/5=6个子序列
+    # 批量大小2，则可生成批量数=6个子序列/批量大小2=3个小批量
+    num_batches = num_subseqs // batch_size # 可生成的小批量数=总可用子序列数÷批量大小
+    # 构造小批量数据(每次取batch_size个随机起始索引，生成输入X和标签Y)
+    # i就是 当前批量在 总子序列中的第几批开头位置
+    # 从已有的 打乱好的 起始索引list中，选出当前批量对应的那个下标位置上 的起始索引
+    for i in range(0, batch_size * num_batches, batch_size):
+        # 在这里，initial_indices包含子序列的随机起始索引
+        initial_indices_per_batch = initial_indices[i: i + batch_size] # 每批次对应的起始索引
+        X = [data(j) for j in initial_indices_per_batch]     # 输入子序列
+        Y = [data(j + 1) for j in initial_indices_per_batch] # 标签(右移一位)
+        yield torch.tensor(X), torch.tensor(Y) # 使用yield实现生成器，节省内存
+
+
+# 数据生成器：【顺序分区】按顺序划分长序列，生成小批量数据，保证完整覆盖序列
+def seq_data_iter_sequential(corpus, batch_size, num_steps):  #@save
+    """使用顺序分区生成一个小批量子序列"""
+    # 从随机偏移量开始划分序列
+    offset = random.randint(0, num_steps) # 随机偏移起始位置
+    # 确保能整除 batch_size，避免最后一个小批量不足
+    # (len(corpus) - offset - 1) 起始位置偏移后，剩余右侧 所需的最少长度
+    num_tokens = ((len(corpus) - offset - 1) // batch_size) * batch_size # 有效词元数
+    # 重构为批量优先格式：将序列重塑为 (batch_size批量大小, sequence_length序列长度) 的张量，便于批量处理
+    # sequence_length序列长度：每个样本（序列）的时间步数（或词元数）
+    Xs = torch.tensor(corpus[offset: offset + num_tokens]) # 截取有效词元区域，这里得到的向量形式的张量
+    Ys = torch.tensor(corpus[offset + 1: offset + 1 + num_tokens]) # 可作为标签的有效词元区域
+    # 重塑张量形状，每列皆为一个批量，每行皆为单批量的序列长度 即总词元数大小
+    Xs, Ys = Xs.reshape(batch_size, -1), Ys.reshape(batch_size, -1)
+    num_batches = Xs.shape[1] // num_steps # 批量数=/每个小批量的时间步数 即序列长度
+    # 按步长分割小批量：沿序列长度维度（axis=1）滑动窗口，生成连续的小批量
+    # 将单次批量的总序列大小分割为多个子序列
+    for i in range(0, num_steps * num_batches, num_steps):
+        # 从第i列开始，取num_steps列
+        X = Xs[:, i: i + num_steps] # 输入子序列
+        Y = Ys[:, i: i + num_steps] # 标签
+        yield X, Y # 使用yield实现生成器
+
+
+# 数据加载器类：将随机采样和顺序分区包装到一个类中，以便稍后可以将其用作数据迭代器
+class SeqDataLoader:  #@save
+    """加载序列数据的迭代器"""
+    # max_tokens：限制返回的词元索引序列的最大长度（默认 -1 表示不限制）
+    def __init__(self, batch_size, num_steps, use_random_iter, max_tokens):
+        # 初始化选择采样方式
+        if use_random_iter:
+            self.data_iter_fn = seq_data_iter_random     # 随机取样
+        else:
+            self.data_iter_fn = seq_data_iter_sequential # 顺序分区
+        self.corpus, self.vocab = load_corpus_time_machine(max_tokens) # 加载语料和词表
+        self.batch_size, self.num_steps = batch_size, num_steps
+
+    # __iter__实现迭代器协议：使对象可迭代，直接用于for循环
+    # 从语料库(self.corpus)中 按指定的batch_size和num_step（即sequence_length） 生成批量数据
+    def __iter__(self):
+        return self.data_iter_fn(self.corpus, self.batch_size, self.num_steps)
+
+'''
+数据加载函数：同时返回数据迭代器和词表
+batch_size     ：每小批量的子序列数量
+num_steps      ：每个子序列的时间步数（词元数）
+use_random_iter：是否使用随机采样（默认顺序分区）
+max_tokens     ：限制语料库的最大词元数
+    返回值
+data_iter：SeqDataLoader 实例（可迭代）
+vocab    ：词表对象（用于词元与索引的映射）
+'''
+def load_data_time_machine(batch_size, num_steps,  #@save
+                           use_random_iter=False, max_tokens=10000):
+    """返回时光机器数据集的迭代器和词表"""
+    data_iter = SeqDataLoader(
+        batch_size, num_steps, use_random_iter, max_tokens)
+    return data_iter, data_iter.vocab
+
+
+
+
+
 
 
 
