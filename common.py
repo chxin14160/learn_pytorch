@@ -105,7 +105,7 @@ def set_axes(axes, xlabel=None, ylabel=None, xlim=None, ylim=None,
 # 绘图函数
 def plot(X, Y=None, xlabel=None, ylabel=None, legend=None,
          xlim=None, ylim=None, xscale='linear', yscale='linear',
-         fmts=('-', 'm--', 'g-.', 'r:'), figsize=(5, 2.5), axes=None):
+         fmts=('-', 'm--', 'g-.', 'r:', 'c-.', 'y-', 'k:'), figsize=(5, 2.5), axes=None):
     """绘制数据点"""
     if legend is None: legend = [] # 默认图例为空列表（避免后续判断报错）
     # 创建画布（如果未提供外部axes）
@@ -697,13 +697,13 @@ def seq_data_iter_sequential(corpus, batch_size, num_steps):  #@save
 class SeqDataLoader:  #@save
     """加载序列数据的迭代器"""
     # max_tokens：限制返回的词元索引序列的最大长度（默认 -1 表示不限制）
-    def __init__(self, batch_size, num_steps, use_random_iter, max_tokens):
+    def __init__(self, downloader, batch_size, num_steps, use_random_iter, max_tokens):
         # 初始化选择采样方式
         if use_random_iter:
             self.data_iter_fn = seq_data_iter_random     # 随机取样
         else:
             self.data_iter_fn = seq_data_iter_sequential # 顺序分区
-        self.corpus, self.vocab = load_corpus_time_machine(max_tokens) # 加载语料和词表
+        self.corpus, self.vocab = load_corpus_time_machine(downloader, max_tokens) # 加载语料和词表
         self.batch_size, self.num_steps = batch_size, num_steps
 
     # __iter__实现迭代器协议：使对象可迭代，直接用于for循环
@@ -721,11 +721,11 @@ max_tokens     ：限制语料库的最大词元数
 data_iter：SeqDataLoader 实例（可迭代）
 vocab    ：词表对象（用于词元与索引的映射）
 '''
-def load_data_time_machine(batch_size, num_steps,  #@save
+def load_data_time_machine(downloader, batch_size, num_steps,  #@save
                            use_random_iter=False, max_tokens=10000):
     """返回时光机器数据集的迭代器和词表"""
     data_iter = SeqDataLoader(
-        batch_size, num_steps, use_random_iter, max_tokens)
+        downloader, batch_size, num_steps, use_random_iter, max_tokens)
     return data_iter, data_iter.vocab
 
 

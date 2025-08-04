@@ -4,7 +4,8 @@ import common
 import collections # 提供高性能的容器数据类型，替代Python的通用容器(如 dict, list, set, tuple)
 import re # 供正则表达式支持，用于字符串匹配、搜索和替换
 import random
-
+import math
+from torch.nn import functional as F
 
 
 def learn_SequenceModel():
@@ -225,48 +226,191 @@ def learn_textPreprocess():
 # learn_textPreprocess()
 
 
+def learn_languageModelsAndDatasets():
+    lines = common.read_time_machine(downloader) # 获取文本行列表
+    tokens = common.tokenize(lines) # 将文本行列表中的元素词元化(按单词拆分)
+    # 因为每个文本行不一定是一个句子或一个段落，因此把所有文本行拼接到一起
+    corpus = [token for line in tokens for token in line] # 将词元列表展平
+    vocab = common.Vocab(corpus)
+    print(f"前10个最常用的（频率最高的）单词：\n{vocab.token_freqs[:10]}")
 
-lines = common.read_time_machine(downloader) # 获取文本行列表
-tokens = common.tokenize(lines) # 将文本行列表中的元素词元化(按单词拆分)
-# 因为每个文本行不一定是一个句子或一个段落，因此把所有文本行拼接到一起
-corpus = [token for line in tokens for token in line] # 将词元列表展平
-vocab = common.Vocab(corpus)
-print(f"前10个最常用的（频率最高的）单词：\n{vocab.token_freqs[:10]}")
+    freqs = [freq for token, freq in vocab.token_freqs] # 词频(降序)
+    common.plot(freqs, xlabel='token: x', ylabel='frequency: n(x)',
+             xscale='log', yscale='log') # 绘制(横坐标=词频索引，纵坐标=词频具体数值)
 
-freqs = [freq for token, freq in vocab.token_freqs] # 词频(降序)
-common.plot(freqs, xlabel='token: x', ylabel='frequency: n(x)',
-         xscale='log', yscale='log') # 绘制(横坐标=词频索引，纵坐标=词频具体数值)
+    # 词元组合(二元语法)
+    bigram_tokens = [pair for pair in zip(corpus[:-1], corpus[1:])]
+    bigram_vocab = common.Vocab(bigram_tokens)
+    print(f"前10个最常用的（频率最高的）词元组合(二元语法)：\n{bigram_vocab.token_freqs[:10]}")
 
-# 词元组合(二元语法)
-bigram_tokens = [pair for pair in zip(corpus[:-1], corpus[1:])]
-bigram_vocab = common.Vocab(bigram_tokens)
-print(f"前10个最常用的（频率最高的）词元组合(二元语法)：\n{bigram_vocab.token_freqs[:10]}")
+    # 词元组合(三元语法)
+    trigram_tokens = [triple for triple in zip(corpus[:-2], corpus[1:-1], corpus[2:])]
+    trigram_vocab = common.Vocab(trigram_tokens)
+    print(f"前10个最常用的（频率最高的）词元组合(三元语法)：\n{trigram_vocab.token_freqs[:10]}")
 
-# 词元组合(三元语法)
-trigram_tokens = [triple for triple in zip(corpus[:-2], corpus[1:-1], corpus[2:])]
-trigram_vocab = common.Vocab(trigram_tokens)
-print(f"前10个最常用的（频率最高的）词元组合(三元语法)：\n{trigram_vocab.token_freqs[:10]}")
-
-# 再直观对比 三种模型中的词元频率：一元语法、二元语法和三元语法
-bigram_freqs = [freq for token, freq in bigram_vocab.token_freqs]
-trigram_freqs = [freq for token, freq in trigram_vocab.token_freqs]
-common.plot([freqs, bigram_freqs, trigram_freqs], xlabel='token: x',
-         ylabel='frequency: n(x)', xscale='log', yscale='log',
-         legend=['unigram', 'bigram', 'trigram'])
-
-
-my_seq = list(range(35)) # 生成一个从0到34的序列
-# 批量大小为2，时间步数为5
-for idx, (X, Y) in enumerate(common.seq_data_iter_random(my_seq, batch_size=2, num_steps=5)):
-    print(f" 随机取样 —————— idx={idx} —————— \n"
-          f"X: {X}\nY:{Y}")
-
-for idx, (X, Y) in enumerate(common.seq_data_iter_sequential(my_seq, batch_size=2, num_steps=5)):
-    print(f" 顺序分区 —————— idx={idx} —————— \n"
-          f"X: {X}\nY:{Y}")
+    # 再直观对比 三种模型中的词元频率：一元语法、二元语法和三元语法
+    bigram_freqs = [freq for token, freq in bigram_vocab.token_freqs]
+    trigram_freqs = [freq for token, freq in trigram_vocab.token_freqs]
+    common.plot([freqs, bigram_freqs, trigram_freqs], xlabel='token: x',
+             ylabel='frequency: n(x)', xscale='log', yscale='log',
+             legend=['unigram', 'bigram', 'trigram'])
 
 
+    my_seq = list(range(35)) # 生成一个从0到34的序列
+    # 批量大小为2，时间步数为5
+    for idx, (X, Y) in enumerate(common.seq_data_iter_random(my_seq, batch_size=2, num_steps=5)):
+        print(f" 随机取样 —————— idx={idx} —————— \n"
+              f"X: {X}\nY:{Y}")
 
+    for idx, (X, Y) in enumerate(common.seq_data_iter_sequential(my_seq, batch_size=2, num_steps=5)):
+        print(f" 顺序分区 —————— idx={idx} —————— \n"
+              f"X: {X}\nY:{Y}")
+# learn_languageModelsAndDatasets()
+
+
+# 验证：分别矩阵乘法后再结果相加 相当于 输入和权重分别拼接后再矩阵乘法
+def learn_422():
+    # （1）分别矩阵乘法后 再结果相加
+    # 首先定义矩阵 X、W_xh、H 和 W_hh，分别为(3,1)、(1,4)、(3,4)和(4,4)
+    # .normal() 从离散正态分布(均值为0，标准差为1)中抽取随机数
+    X, W_xh = torch.normal(0, 1, (3, 1)), torch.normal(0, 1, (1, 4))
+    H, W_hh = torch.normal(0, 1, (3, 4)), torch.normal(0, 1, (4, 4))
+    # 分别将X乘以W_xh，将H乘以W_hh，然后将这两个乘法相加
+    temp_add = torch.matmul(X, W_xh) + torch.matmul(H, W_hh)
+    print(f"得到一个形状为(3,4)的矩阵：\n{temp_add}")
+
+    # （2）输入和权重分别拼接后 再矩阵乘法
+    # .cat((X, H), 1) 沿列（轴1）拼接矩阵X和H
+    # .cat((W_xh, W_hh), 0)) 沿行（轴0）拼接矩阵W_xh和W_hh
+    # 这两个拼接分别产生形状(3,5)和形状(5,4)的矩阵
+    all_input = torch.cat((X, H), 1)
+    all_w = torch.cat((W_xh, W_hh), 0)
+    print(f"拼接后的输入：\n{all_input}")
+    print(f"拼接后的权重：\n{all_w}")
+    temp_add = torch.matmul(all_input, all_w) # 再将这两个拼接的矩阵相乘
+    print(f"得到与上面相同形状(3,4)的输出矩阵：\n{temp_add}")
+# def learn_422()
+
+
+
+batch_size, num_steps = 32, 35 # 每个小批量包含32个子序列，每个子序列的词元数为35
+train_iter, vocab = common.load_data_time_machine(downloader, batch_size, num_steps) # 词表对象
+
+# 将索引 [0, 2] 转换为长度为 len(vocab) 的 one-hot 编码，
+# 结果是一个形状为 (2, len(vocab)) 的张量，其中每一行是对应索引的 one-hot 向量
+F.one_hot(torch.tensor([0, 2]), len(vocab))
+print(f"索引为0和2的独热向量：\n{F.one_hot(torch.tensor([0, 2]), len(vocab))}")
+
+X = torch.arange(10).reshape((2, 5)) # 创建形状为 (2, 5) 的张量 X，包含 0~9 的整数
+# X.T 转置X，得到形状 (5, 2)，表示5个时间步（或序列长度），每个时间步有2个特征（或2个独立的索引）
+# one_hot(X.T, 28) 对X.T应用one_hot编码，num_classes=28 (5个时间步 × 2个索引 × 每个索引的28维one-hot编码)
+print(f"{F.one_hot(X.T, 28).shape}")
+
+"""
+初始化RNN模型的参数
+参数:
+vocab_size: 词表大小 (输入和输出的维度)
+num_hiddens: 隐藏层大小
+device: 计算设备 (CPU/GPU)
+返回:params: 模型参数列表 [W_xh, W_hh, b_h, W_hq, b_q]
+"""
+def get_params(vocab_size, num_hiddens, device):
+    num_inputs = num_outputs = vocab_size # 输入和输出的维度都是词表大小
+
+    def normal(shape):  # 定义正态分布初始化函数
+        return torch.randn(size=shape, device=device) * 0.01 # 生成小随机数
+
+    # 隐藏层参数
+    W_xh = normal((num_inputs, num_hiddens))        # 输入到隐藏层的权重
+    W_hh = normal((num_hiddens, num_hiddens))       # 隐藏层到隐藏层的权重
+    b_h = torch.zeros(num_hiddens, device=device)   # 隐藏层偏置
+    # 输出层参数
+    W_hq = normal((num_hiddens, num_outputs))       # 隐藏层到输出层的权重
+    b_q = torch.zeros(num_outputs, device=device)   # 输出层偏置
+    # 附加梯度 (将所有参数放入列表，并设置需要梯度)
+    params = [W_xh, W_hh, b_h, W_hq, b_q]
+    for param in params:
+        param.requires_grad_(True)  # 开启梯度追踪
+    return params
+
+'''
+初始化RNN的隐藏状态：初始化RNN模型的参数
+包括输入到隐藏层、隐藏层到隐藏层、隐藏层到输出层的权重以及相应的偏置
+权重使用小随机数初始化，偏置初始化为零
+batch_size: 批量大小
+num_hiddens: 隐藏层大小
+device: 计算设备
+返回:包含初始隐藏状态的元组 (H0,)
+'''
+def init_rnn_state(batch_size, num_hiddens, device):
+    # 创建全零的初始隐藏状态，形状为 (batch_size, num_hiddens)
+    return (torch.zeros((batch_size, num_hiddens), device=device), )  # 初始隐藏状态为全0
+
+'''
+RNN前向传播函数
+功能：返回初始的隐藏状态（一个全零张量），形状为 (batch_size, num_hiddens)
+inputs: 输入序列，形状为 (时间步数量, 批量大小, 词表大小)
+state: 初始隐藏状态
+params: 模型参数
+返回:
+outputs: 所有时间步的输出，形状为 (时间步数量 * 批量大小, 词表大小)
+new_state: 新的隐藏状态
+'''
+def rnn(inputs, state, params):
+    # inputs的形状：(时间步数量，批量大小，词表大小)
+    W_xh, W_hh, b_h, W_hq, b_q = params # 解包参数
+    H, = state                          # 解包隐藏状态
+    outputs = []                        # 用于存储每个时间步的输出
+    # X的形状：(批量大小，词表大小)
+    for X in inputs:# 遍历每个时间步的输入
+        # 计算新的隐藏状态：H = tanh(X * W_xh + H * W_hh + b_h)
+        H = torch.tanh(torch.mm(X, W_xh) + torch.mm(H, W_hh) + b_h)
+        Y = torch.mm(H, W_hq) + b_q # 计算当前时间步的输出：Y = H * W_hq + b_q
+        outputs.append(Y)  # 保存输出
+    # 将所有时间步的输出沿时间维度拼接
+    return torch.cat(outputs, dim=0), (H,) # 返回输出和最后一个隐藏状态
+
+'''
+RNN模型类
+功能：实现RNN的前向传播
+对输入序列的每个时间步，计算隐藏状态和输出
+输入inputs形状为 (时间步数, 批量大小, 词表大小)（实际在调用前会转成one-hot）
+该函数返回所有时间步的输出（拼接成一个张量）和最后一个时间步的隐藏状态
+'''
+class RNNModelScratch: #@save
+    """从零开始实现的循环神经网络模型"""
+    def __init__(self, vocab_size, num_hiddens, device,
+                 get_params, init_state, forward_fn):
+        self.vocab_size, self.num_hiddens = vocab_size, num_hiddens # 词表大小,隐藏层大小
+        self.params = get_params(vocab_size, num_hiddens, device)   # 初始化参数
+        self.init_state, self.forward_fn = init_state, forward_fn   # 初始化隐藏状态的函数,前向传播函数
+
+    """
+    模型调用方法（前向传播）
+    参数:
+    X: 输入序列，形状为 (批量大小, 时间步数量)
+    state: 隐藏状态
+    返回:输出和新的隐藏状态
+    """
+    def __call__(self, X, state):
+        # 将输入X转换为one-hot编码
+        # X.T: 转置为 (时间步数量, 批量大小)
+        # one_hot: 转换为 (时间步数量, 批量大小, 词表大小)
+        X = F.one_hot(X.T, self.vocab_size).type(torch.float32)
+        return self.forward_fn(X, state, self.params) # 调用前向传播函数
+
+    def begin_state(self, batch_size, device):
+        """获取初始隐藏状态"""
+        return self.init_state(batch_size, self.num_hiddens, device) # 返回初始隐藏状态
+
+num_hiddens = 512 # 隐藏层大小
+net = RNNModelScratch(len(vocab), num_hiddens, common.try_gpu(), get_params,
+                      init_rnn_state, rnn) # 创建模型实例
+state = net.begin_state(X.shape[0], common.try_gpu()) # 获取初始状态（假设X是一个批量的输入数据）
+Y, new_state = net(X.to(common.try_gpu()), state) # 将数据X转移到设备（如GPU）并前向传播
+print(f"输出Y的形状：{Y.shape}") # (时间步数量 * 批量大小, 词表大小)
+print(f"隐藏状态的元组长度：{len(new_state)}")  # 隐藏状态的元组长度: 1
+print(f"隐藏状态的形状：{new_state[0].shape}") # (批量大小, 隐藏层大小)
 
 
 
