@@ -23,6 +23,7 @@ import requests
 import collections # 提供高性能的容器数据类型，替代Python的通用容器(如 dict, list, set, tuple)
 import re # 供正则表达式支持，用于字符串匹配、搜索和替换
 import random
+import math
 
 
 
@@ -142,6 +143,51 @@ def load_array(data_arrays, batch_size, is_train=True):
     return DataLoader(dataset, batch_size, shuffle=is_train)
 
 
+# 定义优化算法
+'''
+# 实现小批量随机梯度下降（Stochastic Gradient Descent, SGD）优化算法
+    params: 需更新的参数列表。通常为神经网络的可训练权重w和偏置b
+        lr: 学习率（learning rate），是一个标量，用于控制每次参数更新的步长
+batch_size: 批量大小，用于调整梯度更新的幅度
+'''
+def sgd(params, lr, batch_size):  #@save
+    """小批量随机梯度下降"""
+    with torch.no_grad(): # 禁用梯度计算，所有的操作都不会被记录到计算图中，因此不会影响自动微分的过程。参数更新操作时必须的，因为参数更新本身不应该被微分
+        for param in params:
+            # 计算参数更新的步长， /batch_size 是为了对小批量数据的梯度进行平均
+            param -= lr * param.grad / batch_size # (param -= ...是将计算出的更新步长应用到参数上，从而更新参数）
+            param.grad.zero_() # 将参数的梯度手动清零(因为梯度是累积的，以免影响下一次的梯度计算)
+
+
+# 预测函数：生成prefix之后的新字符
+def predict_ch8(prefix, num_preds, net, vocab, device):  #@save
+    """在prefix后面生成新字符"""
+    state = net.begin_state(batch_size=1, device=device) # 初始化隐藏状态，批量大小为1 (单序列预测)
+    # 将prefix的第一个字符转换为索引
+    # prefix[0]第一个字符，vocab[prefix[0]]获取第一个字符的索引
+    outputs = [vocab[prefix[0]]]  # 存储生成的索引(用列表存储)
+    # 辅助函数：获取当前输入 (形状为 (1, 1))
+    # [outputs[-1]]获取索引列表中的最后一个，即 刚刚存进去的那个，也就是当前个
+    get_input = lambda: torch.tensor([outputs[-1]], device=device).reshape((1, 1))
+    # 预热期：处理前缀中的剩余字符
+    # 模型自我更新（例如，更新隐状态），但不进行预测
+    for y in prefix[1:]: # 遍历前缀中除第一个字符外的所有字符
+        _, state = net(get_input(), state)  # 前向传播(忽略输出，只更新隐藏状态)(把类当作函数使用，调用__call__)
+        outputs.append(vocab[y])            # 将当前字符添加到输出列表
+    # 预测阶段：生成新字符，预测num_preds步
+    # 预热期结束后，隐状态的值比刚开始的初始值更适合预测，现在开始预测字符并输出
+    for _ in range(num_preds):  # 预测指定数量的字符
+        # y 形状为 (1, vocab_size)（批量大小=1）
+        y, state = net(get_input(), state)          # 前向传播，获取预测输出
+        # argmax(dim=1) 获取概率最高的词索引
+        # int(y.argmax(dim=1).reshape(1)) 转换为 Python整数
+        pred_idx = int(y.argmax(dim=1).reshape(1))  # 从输出中选择概率最高的索引
+        outputs.append(pred_idx)                    # 将预测索引添加到输出列表
+    # 将索引序列 转换回 字符序列
+    # ''.join(...)将字符列表中的所有字符串（每个字符是一个长度为1的字符串）连接成一个字符串
+    return ''.join([vocab.idx_to_token[i] for i in outputs])
+
+
 def accuracy(y_hat, y):  # @save
     """计算预测正确的数量"""
     # len是查看矩阵的行数
@@ -200,6 +246,77 @@ def train_epoch_ch3(net, train_iter, loss, updater):  # @save
         metric.add(float(l.sum()), accuracy(y_hat, y), y.numel())
     # 返回训练损失(平均损失)和训练精度，metric的值由Accumulator得到
     return metric[0] / metric[2], metric[1] / metric[2]
+
+
+''' 梯度裁剪，目的：
+防止梯度爆炸
+稳定训练过程
+特别适合 RNN 这类容易出现梯度问题的模型
+'''
+def grad_clipping(net, theta):  #@save
+    """裁剪梯度"""
+    # 获取需要梯度的参数
+    if isinstance(net, nn.Module): # PyTorch 模块：获取所有可训练参数
+        params = [p for p in net.parameters() if p.requires_grad]
+    else: # 自定义模型：使用模型自带的参数列表
+        params = net.params
+    # 计算所有参数的 梯度的 L2 范数
+    norm = torch.sqrt(sum(torch.sum((p.grad ** 2)) for p in params))
+    if norm > theta: # 如果范数超过阈值θ，进行裁剪(将所有梯度按比例缩放)
+        for param in params: # 保持梯度方向不变，只缩小幅度
+            param.grad[:] *= theta / norm # 按比例缩放梯度
+
+# 单迭代周期训练，以困惑度（Perplexity）作为评估指标
+# 返回困惑度 和 训练速度(每秒处理的词元数量，用于衡量训练效率)
+def train_epoch_ch8(net, train_iter, loss, updater, device, use_random_iter):
+    """训练网络一个迭代周期（定义见第8章）"""
+    state, timer = None, Timer() # 初始化状态和计时器
+    metric = Accumulator(2)  # 训练损失之和,词元数量[loss_sum, token_count]
+    for X, Y in train_iter: # 遍历数据批次
+        # 状态初始化：如果是第一次迭代 或 使用随机抽样
+        if state is None or use_random_iter:
+            # 在第一次迭代 或 使用随机抽样时初始化state (创建全零的初始隐藏状态)
+            state = net.begin_state(batch_size=X.shape[0], device=device)
+        else:
+            # 否则，分离状态，断开与历史计算图的连接，即 断开计算图（防止梯度传播到前一批次）
+            # 训练循环中，对于非随机抽样（即顺序抽样），
+            # 希望状态能跨批次传递，但又不希望梯度从当前批次反向传播到前一批次
+            # (因为那样会导致计算图非常长，占用大量内存且可能梯度爆炸)。
+            # 因此每次迭代开始时，需要将状态从计算图中分离出来
+            if isinstance(net, nn.Module) and not isinstance(state, tuple):
+                # 如果net是PyTorch模块，且状态非元组（例如GRU，它的状态是一个张量）
+                # state对于nn.GRU是个张量
+                state.detach_() # 用detach_()断开 状态与历史计算图 的连接(对张量进行原地分离操作)
+            else:
+                # 若状态是元组（例如LSTM的状态是两个张量，或者自定义的模型状态可能是元组）
+                # state对于nn.LSTM 或 对于从零开始实现的模型 是个张量
+                # LSTM 状态 或 自定义模型状态是元组
+                for s in state:
+                    s.detach_()
+        # 准备数据：转置标签并展平
+        # 先转置再展平 是为了 让标签的顺序与模型输出的顺序一致，从而正确计算损失
+        # Y 原始形状: (batch_size, num_steps)
+        # 转置后: (num_steps, batch_size); 展平后: (num_steps * batch_size)
+        # 与 y_hat 形状 (num_steps * batch_size, vocab_size) 匹配
+        y = Y.T.reshape(-1) # 形状: (num_steps * batch_size)
+        X, y = X.to(device), y.to(device)   # 将数据转移到设备
+        y_hat, state = net(X, state)        # 前向传播
+        l = loss(y_hat, y.long()).mean()    # 计算每个词元的损失后取平均=对整个批次的加权平均
+        # 反向传播
+        if isinstance(updater, torch.optim.Optimizer):
+            updater.zero_grad()             # PyTorch 优化器
+            l.backward()
+            grad_clipping(net, 1)           # 梯度裁剪
+            updater.step()
+        else: # 自定义优化器
+            l.backward()
+            grad_clipping(net, 1)
+            # 因为已经调用了mean函数
+            updater(batch_size=1) # 因为损失已经取平均，batch_size=1
+        metric.add(l * y.numel(), y.numel()) # 累积指标：损失 * 词元数，词元数
+    perplexity = math.exp(metric[0] / metric[1]) # 计算困惑度 = exp(平均损失)
+    speed = metric[1] / timer.stop() # 计算训练速度 = 词元数/秒
+    return perplexity, speed
 
 
 """
@@ -285,6 +402,57 @@ def train_ch6(net, train_iter, test_iter, num_epochs, lr, device):
     print(f'训练速度（样本数/总时间）：{metric[2] * num_epochs / timer.sum():.1f} examples/sec '
           f'on {str(device)}') # 设备的计算能力
 
+
+''' 训练一个 字符级循环神经网络（RNN）模型
+包含了训练循环、梯度裁剪、困惑度计算和文本生成预测
+net             : 要训练的RNN模型（可以是PyTorch模块或自定义模型）
+train_iter      : 训练数据迭代器
+vocab           : 词汇表对象，用于索引和字符之间的转换
+lr              : 学习率
+num_epochs      : 训练的总轮数
+device          : 训练设备（CPU或GPU）
+use_random_iter : 是否使用随机采样（否则使用顺序分区）
+'''
+def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
+              use_random_iter=False):
+    """训练模型（定义见第8章）"""
+    # 1. 初始化损失函数
+    loss = nn.CrossEntropyLoss() # 使用交叉熵损失
+
+    # 2. 初始化可视化工具：初始化动画器，用于绘制训练过程中的困惑度变化
+    animator = Animator(xlabel='epoch', ylabel='perplexity',
+                            legend=['train'], xlim=[10, num_epochs])
+
+    # 3. 初始化优化器：根据net的类型选择不同的优化器
+    if isinstance(net, nn.Module): # 如果是PyTorch模块，使用SGD优化器
+        updater = torch.optim.SGD(net.parameters(), lr) # 则使用PyTorch的SGD优化器
+    else:  # 如果是自定义模型，使用自定义的SGD优化器
+        # 注意：这里的sgd函数需要三个参数：参数列表、学习率和批量大小（通过闭包捕获net.params和lr）
+        # lambda batch_size: sgd(...) 创建闭包函数
+        # 固定学习率 lr，动态传入 batch_size
+        updater = lambda batch_size: sgd(net.params, lr, batch_size)
+
+    # 4. 定义预测函数，用于生成 以给定前缀开头的文本（生成50个字符）
+    predict = lambda prefix: predict_ch8(prefix, 50, net, vocab, device) # 设置预测函数
+
+    # 5. 主训练循环：训练和预测
+    for epoch in range(num_epochs):
+        # 5.1 训练一个epoch，返回困惑度（ppl）和训练速度（speed）（每秒处理多少个词元）
+        # speed 表示每秒处理的词元数量，用于衡量训练效率
+        ppl, speed = train_epoch_ch8(
+            net, train_iter, loss, updater, device, use_random_iter)
+        # 5.2 每10个epoch进行一次评估和可视化
+        if (epoch + 1) % 10 == 0: # 每10个epoch
+            print(predict('time traveller'))  # 使用前缀'time traveller'生成文本并打印
+            animator.add(epoch + 1, [ppl]) # 将当前epoch的困惑度添加到动画中
+
+    # 6. 训练结束后的最终评估：打印最终的困惑度和速度
+    # 困惑度：语言模型质量指标（越低越好）
+    # 处理速度：每秒处理的词元数量
+    print(f'困惑度 {ppl:.1f}, {speed:.1f} 词元/秒 {str(device)}')
+    # 使用两个不同的前缀生成文本
+    print(predict('time traveller'))
+    print(predict('traveller'))
 
 
 # 计时器
@@ -534,7 +702,8 @@ class Vocab:  #@save
                 self.idx_to_token.append(token) # 压入新词元
                 self.token_to_idx[token] = len(self.idx_to_token) - 1 # 新词元对应的索引
 
-    # __len__用于定义对象的长度行为。对类的实例调用len()时，Python会自动调用该实例的__len__方法
+    # __len__用于定义对象的长度行为。
+    # 对类的实例调用len()时，Python会自动调用该实例的__len__方法
     def __len__(self): # 词表大小（包括 <unk> 和 reserved_tokens）
         return len(self.idx_to_token) # 返回词表大小
 
