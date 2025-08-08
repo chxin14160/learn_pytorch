@@ -291,6 +291,10 @@ def learn_422():
 # def learn_422()
 
 
+
+
+
+
 # 循环神经网络的从零开始实现
 def learn_rnn_StartFromScratch():
     batch_size, num_steps = 32, 35 # 每个小批量包含32个子序列，每个子序列的词元数为35
@@ -309,6 +313,7 @@ def learn_rnn_StartFromScratch():
     """
     初始化RNN模型的参数
     权重使用小随机数初始化，偏置初始化为零
+    包括：输入到隐藏层、隐藏层到隐藏层、隐藏层到输出层的权重以及相应的偏置
     参数:
     vocab_size : 词表大小 (输入和输出的维度)
     num_hiddens: 隐藏层大小
@@ -337,8 +342,7 @@ def learn_rnn_StartFromScratch():
 
     '''
     初始化RNN的隐藏状态
-    包括：输入到隐藏层、隐藏层到隐藏层、隐藏层到输出层的权重以及相应的偏置
-    权重使用小随机数初始化，偏置初始化为零
+    功能：返回初始的隐藏状态（一个全零张量），形状为 (batch_size, num_hiddens)
     batch_size : 批量大小
     num_hiddens: 隐藏层大小
     device     : 计算设备
@@ -346,11 +350,10 @@ def learn_rnn_StartFromScratch():
     '''
     def init_rnn_state(batch_size, num_hiddens, device):
         # 创建全零的初始隐藏状态，形状为 (batch_size, num_hiddens)
-        return (torch.zeros((batch_size, num_hiddens), device=device), )  # 初始隐藏状态为全0
+        return (torch.zeros((batch_size, num_hiddens), device=device), ) # 初始隐藏状态为全0
 
     '''
     RNN前向传播函数
-    功能：返回初始的隐藏状态（一个全零张量），形状为 (batch_size, num_hiddens)
     inputs: 输入序列，形状为 (时间步数量, 批量大小, 词表大小)
     state : 初始隐藏状态的元组 (H0,)
     params: 模型参数列表 [W_xh, W_hh, b_h, W_hq, b_q]
@@ -440,18 +443,101 @@ def learn_rnn_StartFromScratch():
 # learn_rnn_StartFromScratch()
 
 
+# 循环神经网络的简洁实现
+def learn_rnn_SimpleImplementation():
+    batch_size, num_steps = 32, 35 # 每个小批量包含32个子序列，每个子序列的词元数为35
+    train_iter, vocab = common.load_data_time_machine(downloader, batch_size, num_steps) # 词表对象
 
+    num_hiddens = 256 # 隐藏单元数量，即 有256个隐藏单元，rnn有256个神经元
 
+    # 输入维度: len(vocab) (词表大小)
+    # 隐藏层维度: num_hiddens (256)
+    # 默认使用tanh激活函数，单层单向RNN
+    rnn_layer = nn.RNN(len(vocab), num_hiddens) # 创建RNN层
 
+    # 形状: (层数 * 方向数, 批量大小, 隐藏单元数)
+    # 对于单层单向RNN: 层数=1, 方向数=1
+    state = torch.zeros((1, batch_size, num_hiddens)) # 初始化隐藏状态
+    print(f"初始化隐状态，它的形状：{state.shape}") # 输出: (1, batch_size, 256)
 
+    # 创建随机输入数据，形状: (时间步数, 批量大小, 输入维度)
+    X = torch.rand(size=(num_steps, batch_size, len(vocab)))
+    # rnn_layer的 “输出”Y 不涉及输出层的计算：
+    # 它是指每个时间步的隐状态，这些隐状态可以用作后续输出层的输入
+    Y, state_new = rnn_layer(X, state)
+    print(f"输出Y的形状：{Y.shape}") # (时间步数,批量大小,隐藏单元数)->(num_steps, batch_size, 256)
+    print(f"新的隐藏状态，其形状：{state_new.shape}") # (1, batch_size, 256)
 
+    # 定义完整的RNN模型类
+    class RNNModel(nn.Module):
+        """循环神经网络模型"""
+        def __init__(self, rnn_layer, vocab_size, **kwargs):
+            super(RNNModel, self).__init__(**kwargs)
+            self.rnn = rnn_layer                    # 传入的RNN层
+            self.vocab_size = vocab_size            # 词表大小
+            self.num_hiddens = self.rnn.hidden_size # 从RNN层获取隐藏单元数
 
+            # 判断RNN是否为双向：若RNN是双向(之后将介绍)，num_directions为2，否则为1
+            if not self.rnn.bidirectional: # 单向RNN: num_directions = 1
+                self.num_directions = 1
+                # 线性层: 将隐藏状态映射到词表大小
+                self.linear = nn.Linear(self.num_hiddens, self.vocab_size)
+            else:                          # 双向RNN: num_directions = 2
+                self.num_directions = 2
+                # 对于双向RNN，需要将两个方向的隐藏状态拼接
+                self.linear = nn.Linear(self.num_hiddens * 2, self.vocab_size)
 
+        """ 前向传播函数
+        inputs: 输入张量，形状为(批量大小, 时间步数)
+        state: 隐藏状态
+        """
+        def forward(self, inputs, state):
+            # 输入转为one-hot编码
+            # inputs.T: 转置为(时间步数, 批量大小)
+            # one-hot编码后形状: (时间步数, 批量大小, 词表大小)
+            X = F.one_hot(inputs.T.long(), self.vocab_size)
+            X = X.to(torch.float32)         # 独热张量转换为float32 (PyTorch的线性层需要浮点输入)
 
+            # Y: 所有时间步的输出，形状为(时间步数, 批量大小, 隐藏单元数 * 方向数)
+            # state: 更新后的隐藏状态
+            Y, state = self.rnn(X, state)   # 通过RNN层
 
+            # 全连接层首先将Y的形状改为(时间步数*批量大小,隐藏单元数)
+            # 即 重塑Y的形状为 (时间步数 * 批量大小, 隐藏单元数 * 方向数)
+            # 这样每个时间步的每个样本都可以独立处理
+            # 其输出形状为 (时间步数*批量大小, 词表大小)
+            output = self.linear(Y.reshape((-1, Y.shape[-1]))) # 通过全连接层进行预测
+            return output, state
 
+        # 初始化隐藏状态函数：根据RNN类型(GRU/LSTM)返回适当形式的初始状态
+        def begin_state(self, device, batch_size=1):
+            if not isinstance(self.rnn, nn.LSTM): # 对于GRU类型的RNN
+                # nn.GRU以张量作为隐状态
+                # 返回零张量作为初始状态，形状: (层数 * 方向数, 批量大小, 隐藏单元数)
+                return  torch.zeros((self.num_directions * self.rnn.num_layers,
+                                     batch_size, self.num_hiddens),
+                                    device=device)
+            else: # 对于LSTM类型的RNN
+                # nn.LSTM以元组作为隐状态，LSTM需要两个状态: (隐藏状态h, 细胞状态c)
+                return (
+                    torch.zeros(( # 隐藏状态
+                    self.num_directions * self.rnn.num_layers,
+                    batch_size, self.num_hiddens), device=device),
+                    torch.zeros(( # 细胞状态
+                            self.num_directions * self.rnn.num_layers,
+                            batch_size, self.num_hiddens), device=device))
 
+    device = common.try_gpu()
+    net = RNNModel(rnn_layer, vocab_size=len(vocab)) # 创建rnn模型实例
+    net = net.to(device)
+    # 先基于一个具有随机权重的模型进行预测：基于起始字符生成10个后续字符
+    # （此时模型尚未训练，预测是随机的）
+    output = common.predict_ch8('time traveller', 10, net, vocab, device)
+    print(f"未训练网络的情况下，测试函数基于time traveller这个前缀生成10个后续字符：\n"
+          f"{output}")
 
-
-
+    # 使用与从零开始实现中的同款超参数训练，用高级api训练模型
+    num_epochs, lr = 500, 1 # 训练500轮，学习率=1
+    common.train_ch8(net, train_iter, vocab, lr, num_epochs, device)
+learn_rnn_SimpleImplementation()
 
