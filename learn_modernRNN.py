@@ -483,12 +483,30 @@ source, target = common.tokenize_nmt(text)
 print(f"源语言(英语)【前6个】文本序列的词元列表：\n{source[:6]}")
 print(f"目标语言(法语)【前6个】文本序列的词元列表：\n{target[:6]}")
 
+# 绘制每个文本序列所包含的词元数量的直方图
+# common.show_list_len_pair_hist(['source', 'target'],
+#                                '# tokens per sequence','count',
+#                                source, target)
 
+# 给 词元化后的源语言 句子列表 构建词表，管理词元与索引的映射关系
+src_vocab = common.Vocab(source, min_freq=2,
+                      reserved_tokens=['<pad>', '<bos>', '<eos>'])
+print(f"词表大小：{len(src_vocab)}")
 
+# 打印出元素为整型是因为 src_vocab已将单词映射为整数ID
+print(f"以取第一个句子为例\n{src_vocab[source[0]]}")
+print(f"将文本序列截断或填充至10个后：(取第一个句子为例)\n"
+      f"{common.truncate_pad(src_vocab[source[0]], 10, src_vocab['<pad>'])}")
 
-
-
-
+# 加载“英语－法语”数据集的数据迭代器，以及源语言和目标语言的词表
+train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size=2, num_steps=8)
+# 读出“英语－法语”数据集中的第一个小批量数据
+for X, X_valid_len, Y, Y_valid_len in train_iter:
+    print('源语言X:', X.type(torch.int32))
+    print('源语言X的有效长度:', X_valid_len)
+    print('目标语言Y:', Y.type(torch.int32))
+    print('目标语言Y的有效长度:', Y_valid_len)
+    break
 
 
 

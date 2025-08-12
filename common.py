@@ -534,6 +534,7 @@ class Animator:  # @save
         self.config_axes = lambda: [set_axes(ax, xlabel, ylabel, xlim, ylim,
                                              xscale, yscale, legend) for ax in self.axes]
         self.X, self.Y, self.fmts = None, None, fmts
+        plt.tight_layout()  # 自动调整布局防止标签重叠
         plt.ion()  # 开启交互模式，使图形可以实时更新
 
     def add(self, x, y):
@@ -860,6 +861,113 @@ def tokenize_nmt(text, num_examples=None):
             # 例如："ça alors !" → ["ça", "alors", "!"]
             target.append(parts[1].split(' '))
     return source, target # 返回分词后的双语平行语料
+
+
+""" 绘制两个列表长度分布的对比直方图
+legend (list): 图例标签，例如 ['Source', 'Target']
+xlabel  (str): x轴标签，例如 'Sentence Length'
+ylabel  (str): y轴标签，例如 'Count'
+xlist  (list): 第一个列表（如源语言句子列表）
+ylist  (list): 第二个列表（如目标语言句子列表）
+"""
+def show_list_len_pair_hist(legend, xlabel, ylabel, xlist, ylist):
+    """绘制列表长度对的直方图"""
+    plt.figure(figsize=(6, 4)) # 设置图形大小
+
+    # 计算两个列表的长度分布
+    # 对xyList中每一个元素都计算len(l)，然后组成新列表
+    x_lengths = [len(l) for l in xlist]  # 第一个列表的长度序列
+    y_lengths = [len(l) for l in ylist]  # 第二个列表的长度序列
+    # 绘制直方图，返回补丁对象用于后续修改
+    _, _, patches = plt.hist(
+        [x_lengths, y_lengths],
+        # bins='auto', # bins='auto' 让matplotlib自动选择合适的柱子数量
+        # alpha=0.5,   # alpha=0.5 设置透明度以便观察重叠部分
+        # label=legend
+    )
+    plt.xlabel(xlabel) # 设置坐标x轴标签
+    plt.ylabel(ylabel) # 设置坐标y轴标签
+    # 为第二个直方图添加斜线填充图案（增强视觉区分）
+    # patches[1]对应第二个输入的数据（ylist）
+    for patch in patches[1].patches:
+        patch.set_hatch('/') # 设置填充样式为斜线
+    plt.legend(legend) # 显示图例
+    plt.tight_layout() # 自动调整布局防止标签重叠
+    plt.show()
+
+''' 截断或填充文本序列到固定长度
+line         : 输入的文本序列（通常是词元ID列表，如 [1,5,23,4]）
+num_steps    : 目标固定长度（时间步数/词元数量）
+padding_token: 用于填充的特殊词元（如 '<pad>' 对应的ID）
+返回值：处理后的序列（截断或填充后的固定长度序列）
+'''
+def truncate_pad(line, num_steps, padding_token):
+    """截断或填充文本序列"""
+    if len(line) > num_steps: # 若序列长度超限，则直接截断
+        return line[:num_steps]  # 截断
+    # 若序列长度不足，则直接填充至目标长度
+    return line + [padding_token] * (num_steps - len(line)) # 填充
+
+
+""" 将机器翻译的文本序列转换成小批量
+lines    : List[List[str]]，文本序列列表（每个序列是单词列表，如[["I","love"], ["Halo","world"]]）
+vocab    : common.Vocab，词表对象，用于将单词映射为整数ID
+num_steps: int，序列的最大长度（截断或填充的目标长度）
+返回:
+array    : torch.Tensor，形状为(batch_size, num_steps)，包含填充后的序列ID
+valid_len: torch.Tensor，形状为(batch_size,)，表示每个序列的有效长度（不含<pad>）
+"""
+def build_array_nmt(lines, vocab, num_steps):
+    """将机器翻译的文本序列转换成小批量"""
+    # 输入lines: [["I", "love"], ["Hello", "world"]]
+    # 输出lines: [[vocab["I"], vocab["love"]], [vocab["Hello"], vocab["world"]]]
+    lines = [vocab[l] for l in lines]             # 将每个单词转换为词表中的整数ID
+    # 输出lines: [[vocab["I"], vocab["love"], vocab["<eos>"]],
+    #             [vocab["Hello"], vocab["world"], vocab["<eos>"]]]
+    lines = [l + [vocab['<eos>']] for l in lines] # 在每个序列末尾添加<eos>（句子结束符）
+
+    # 对每个序列进行截断或填充，使其长度为num_steps
+    # 此时array的形状将会是(batch_size, num_steps)，batch_size即为lines的行数，即句子个数
+    array = torch.tensor([truncate_pad(
+        l, num_steps, vocab['<pad>']) for l in lines])
+
+    # 计算每个序列的有效长度（非<pad>的token数量）
+    # 布尔掩码 (array != vocab['<pad>']) 标记非填充位置
+    # 将张量中不等于<pad> ID的位置标记为1，求和得到有效长度
+    # .sum(1) 沿列求和降维，即列数清0
+    valid_len = (array != vocab['<pad>']).type(torch.int32).sum(1)
+    return array, valid_len
+
+
+""" 返回翻译数据集的迭代器和词表
+downloader: 数据下载器（如d2l.Downloader） - 用于获取原始数据
+batch_size: int - 每个批量的样本数
+num_steps: int - 序列的最大长度（截断或填充的目标长度）
+num_examples: int - 使用的样本数量（默认600，用于调试或小规模测试）
+返回:
+data_iter: 迭代器 - 生成批量数据的迭代器
+src_vocab: Vocab - 源语言（输入）的词表对象
+tgt_vocab: Vocab - 目标语言（输出）的词表对象
+"""
+def load_data_nmt(downloader, batch_size, num_steps, num_examples=600):
+    """返回翻译数据集的迭代器和词表"""
+    text = preprocess_nmt(read_data_nmt(downloader)) # 下载并预处理原始数据
+    # source: 源语言单词列表
+    # target: 目标语言单词列表
+    source, target = tokenize_nmt(text, num_examples) # 词元化 分词并截取指定数量的样本
+    # 构建 源语言词表（src_vocab）
+    src_vocab = Vocab(source, min_freq=2,
+                          reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    # 构建 目标语言词表（tgt_vocab）
+    tgt_vocab = Vocab(target, min_freq=2,
+                          reserved_tokens=['<pad>', '<bos>', '<eos>'])
+    # 将语言序列转换为张量并计算有效长度(将机器翻译的文本序列转换成小批量)
+    src_array, src_valid_len = build_array_nmt(source, src_vocab, num_steps)
+    tgt_array, tgt_valid_len = build_array_nmt(target, tgt_vocab, num_steps)
+    # 组合数据为元组 (源语言ID, 源语言有效长度, 目标语言ID, 目标语言有效长度)
+    data_arrays = (src_array, src_valid_len, tgt_array, tgt_valid_len)
+    data_iter = load_array(data_arrays, batch_size) # 创建数据迭代器
+    return data_iter, src_vocab, tgt_vocab # 返回迭代器和词表
 
 
 # 获取《时光机器》的 词元索引序列和词表对象
