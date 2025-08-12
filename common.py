@@ -770,6 +770,55 @@ def read_time_machine(downloader):  #@save
     return [re.sub('[^A-Za-z]+', ' ', line).strip().lower() for line in lines]
 
 
+# 读取“英语－法语”数据集(神经网络机器翻译nmt中要用到的)
+# downloader将下载器类对象传入，以调用“下载并解压”的功能
+def read_data_nmt(downloader):
+    """载入“英语－法语”数据集"""
+    # 1. 下载并解压数据集（若本地不存在）
+    # 自动从DATA_HUB下载压缩包并解压到本地缓存目录
+    data_dir = downloader.download_extract('fra-eng')
+    # 2. 打开解压后的法语文本文件（fra.txt）
+    #    - 文件路径格式：{解压目录}/fra.txt
+    #    - 使用UTF-8编码读取（支持法语特殊字符如é, ç等）
+    with open(os.path.join(data_dir, 'fra.txt'), 'r',
+             encoding='utf-8') as f:
+        return f.read() # 3. 返回整个文件内容作为字符串
+
+'''
+预处理文本数据
+(统一空格、统一小写、单词与符号见空格隔开)
+原始文本: "Ça va?\u202fOui!"
+处理步骤:
+1. 替换特殊空格: "Ça va? Oui!"
+2. 转为小写: "ça va? oui!"
+3. 标点前加空格: "ça va ?  oui !"
+最终输出: "ça va ?  oui !"
+'''
+def preprocess_nmt(text):
+    """预处理“英语－法语”数据集"""
+    def no_space(char, prev_char): # 判断是否需要在标点符号前添加空格
+        """检查当前字符是否是标点且前一个字符不是空格"""
+        punctuations = set(',.!?') # 需要处理的标点符号集合
+        # 满足两个条件：1.当前字符是标点 2.前一个字符不是空格
+        return char in punctuations and prev_char != ' '
+
+    # 使用空格替换不间断空格(统一空白字符)
+    # \u202f：法语中常用的不间断窄空格(narrow no-break space)
+    # \xa0：不间断空格(no-break space)
+    # 皆统一替换为普通空格
+    # 使用小写字母替换大写字母
+    # .lower()将所有字母转为小写（法语有重音符号的小写形式）
+    text = text.replace('\u202f', ' ').replace('\xa0', ' ').lower()
+
+    # 在单词和标点符号之间插入空格
+    # 例如："Hello,world" -> "Hello , world"
+    out = [
+           # 如果当前字符是标点且前一个字符不是空格，则在该标点前插入空格
+           ' ' + char if i > 0 and no_space(char, text[i - 1]) else char
+           # 遍历文本中的每个字符及其索引
+           for i, char in enumerate(text)]
+    return ''.join(out) # 将处理后的字符列表重新组合成字符串
+
 # 词元化函数：支持按单词或字符拆分文本
 # lines：预处理后的文本行列表
 # token：词元类型，可选 'word'（默认）或 'char
@@ -782,6 +831,35 @@ def tokenize(lines, token='word'):  #@save
         return [list(line) for line in lines]   # 按字符拆分
     else:
         print('错误：未知词元类型：' + token)
+
+
+"""
+词元化“英语－法语”数据集
+text: 原始文本数据（预处理后的字符串）
+num_examples: 可选参数，限制处理的样本数量
+返回:
+source: 词元化后的 英语 句子列表（每个句子是词元列表）
+target: 词元化后的 法语 句子列表（每个句子是词元列表）
+"""
+def tokenize_nmt(text, num_examples=None):
+    """词元化“英语－法语”数据数据集"""
+    source, target = [], [] # 初始化存储词元化结果的列表
+    # 按行分割文本（每行应为"英语句子\t法语句子"的格式）
+    for i, line in enumerate(text.split('\n')):
+        # 若指定了样本数量限制，且已超过限制，则终止循环
+        if num_examples and i > num_examples:
+            break
+        parts = line.split('\t') # 按制表符分割每行，得到英语和法语句子
+        if len(parts) == 2: # 确保分割后确实有两部分（有效数据行）
+            # 对英语句子进行分词（按空格分割）
+            # 例如："hello world" → ["hello", "world"]
+            # 例如："go ." → ["go", "."]
+            source.append(parts[0].split(' '))
+            # 对法语句子进行分词（按空格分割）
+            # 注意：这里假设法语句子已经过preprocess_nmt处理，标点与单词间有空格
+            # 例如："ça alors !" → ["ça", "alors", "!"]
+            target.append(parts[1].split(' '))
+    return source, target # 返回分词后的双语平行语料
 
 
 # 获取《时光机器》的 词元索引序列和词表对象
