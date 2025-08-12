@@ -13,6 +13,7 @@ DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
 DATA_HUB['time_machine'] = (DATA_URL + 'timemachine.txt',
                                 '090b5e7e70c295757f55df93cb0a180b9691891a')
 
+
 batch_size, num_steps = 32, 35  # 每个小批量包含32个子序列，每个子序列的词元数为35
 train_iter, vocab = common.load_data_time_machine(downloader, batch_size, num_steps)  # 词表对象
 
@@ -190,6 +191,7 @@ class RNNModel(nn.Module):
     def forward(self, inputs, state):
         # 输入转为one-hot编码
         # inputs.T: 转置为(时间步数, 批量大小)
+        # .long() ：将张量转换为长整型（int64），F.one_hot要求索引为整型，而.long()确保这一点
         # one-hot编码后形状: (时间步数, 批量大小, 词表大小)
         X = F.one_hot(inputs.T.long(), self.vocab_size)
         X = X.to(torch.float32)         # 独热张量转换为float32 (PyTorch的线性层需要浮点输入)
@@ -413,21 +415,73 @@ def learn_LSTM_SimpleImplementation():
 # learn_LSTM_SimpleImplementation()
 
 
+# 深度循环神经网络（仅示范简洁实现）
+def learn_drnn():
+    # 词表大小，隐藏层数量
+    # num_layers : LSTM层数 = 2 (堆叠两层LSTM)
+    vocab_size, num_hiddens, num_layers = len(vocab), 256, 2
+    num_inputs = vocab_size     # 输入特征维度为词表大小（每个字符用one-hot表示）
+    device = common.try_gpu()   # 设备
+    # input_size : 输入特征维度 = 词表大小
+    # hidden_size: 隐藏状态维度 = 256
+    # num_layers : LSTM层数 = 2 (堆叠两层LSTM)
+    lstm_layer = nn.LSTM(num_inputs, num_hiddens, num_layers) # 创建LSTM层
+    model = RNNModel(lstm_layer, len(vocab)) # 创建完整的RNN模型
+    model = model.to(device) # 将模型移至指定设备
+
+    num_epochs, lr = 500, 2  # 迭代轮数为500，学习率
+    common.train_ch8(model, train_iter, vocab, lr*1.0, num_epochs, device)
+# learn_drnn()
+
+
+# 双向循环神经网络 的错误示范
+def bidirectionalRNN_incorrect_demonstration():
+    # 词表大小，隐藏层数量，LSTM层数为2 (堆叠两层LSTM)
+    vocab_size, num_hiddens, num_layers = len(vocab), 256, 2
+    num_inputs = vocab_size     # 输入特征维度为词表大小（每个字符用one-hot表示）
+    device = common.try_gpu()   # 设备
+    # 通过设置“bidirective=True”启用双向 来定义双向LSTM模型
+    # 使用双向LSTM来构建语言模型
+    lstm_layer = nn.LSTM(num_inputs, num_hiddens, num_layers, bidirectional=True)
+    '''
+    nn.LSTM参数说明:
+    - input_size: 输入特征维度 = vocab_size
+    - hidden_size: 隐藏状态维度 = 256
+    - num_layers: LSTM层数 = 2 (堆叠两层)
+    - bidirectional=True: 启用双向处理
+    
+    双向LSTM的特点:
+    1. 每个时间步包含两个隐藏状态:
+       - 前向状态: 处理过去→未来的信息
+       - 后向状态: 处理未来→过去的信息
+    2. 输出维度变化:
+       - 单层双向: 隐藏状态维度 = 2 * num_hiddens
+       - 多层双向: 输出形状 = (seq_len, batch, 2*num_hiddens)
+    '''
+    model = RNNModel(lstm_layer, len(vocab)) # 创建完整的RNN模型
+    model = model.to(device) # 将模型移至指定设备
+    # 训练模型
+    num_epochs, lr = 500, 1  # 迭代轮数为500，学习率
+    common.train_ch8(model, train_iter, vocab, lr, num_epochs, device)
+# bidirectionalRNN_incorrect_demonstration()
 
 
 
+# 注册数据集信息到DATA_HUB全局字典
+# 格式：(数据集URL, MD5校验值)
+DATA_HUB['fra-eng'] = (DATA_URL + 'fra-eng.zip', # 完整下载URL（DATA_URL是d2l定义的基准URL）
+                           '94646ad1522d915e7b0f9296181140edcf86a4f5') # 文件MD5，用于校验下载完整性
 
+# 载入(神经网络机器翻译nmt中要用到的)“英语－法语”数据集
+raw_text = common.read_data_nmt(downloader) # 此时raw_text包含整个语料库的原始文本
+print(f"数据集预览（显示前75个字符）：\n{raw_text[:75]}")
 
+text = common.preprocess_nmt(raw_text)
+print(f"预处理后 数据集预览（显示前80个字符）：\n{text[:80]}")
 
-
-
-
-
-
-
-
-
-
+source, target = common.tokenize_nmt(text)
+print(f"源语言(英语)【前6个】文本序列的词元列表：\n{source[:6]}")
+print(f"目标语言(法语)【前6个】文本序列的词元列表：\n{target[:6]}")
 
 
 
