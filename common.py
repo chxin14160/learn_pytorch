@@ -1084,10 +1084,84 @@ def load_data_time_machine(downloader, batch_size, num_steps,  #@save
     return data_iter, data_iter.vocab
 
 
+# 编码器类（抽象基类）
+# 长度可变序列 → 固定形状的编码状态
+# 其输出是 输入序列的压缩表示
+class Encoder(nn.Module):
+    """编码器-解码器架构的基本编码器接口"""
+    def __init__(self, **kwargs):
+        # Encoder 继承自 nn.Module（PyTorch 的基类）
+        # super(Encoder, self)：从 Encoder的父类（即 nn.Module）开始查找方法
+        # **kwargs 表示接收任意数量的关键字参数
+        super(Encoder, self).__init__(**kwargs)
+        # 初始化父类nn.Module，支持任意关键字参数
 
+    # 将输入序列编码为固定形状的状态
+    def forward(self, X, *args):
+        """ 前向传播接口（需子类实现）
+        X: 输入序列（如源语言句子）
+        *args: 可变参数（如输入序列长度、掩码等）
+        返回: 编码后的状态（具体形式由子类决定）
+        """
+        raise NotImplementedError # 强制子类必须实现此方法
 
+# 解码器类（抽象基类）
+class Decoder(nn.Module):
+    """编码器-解码器架构的基本解码器接口"""
+    def __init__(self, **kwargs):
+        super(Decoder, self).__init__(**kwargs)
+        # 初始化父类nn.Module，支持任意关键字参数
 
+    # 利用编码器输出，来初始化解码状态(对压缩好的输入序列表示 做处理，例如调整格式或筛选)
+    # 即 将编码器的输出enc_outputs 转换为解码器所需的 解码前要的状态
+    def init_state(self, enc_outputs, *args):
+        """ 初始化解码状态接口（需子类实现）
+        enc_outputs: 编码器的输出结果
+        *args: 可变参数（如编码器隐藏状态等）
+        返回: 初始化解码状态（如RNN的初始隐藏状态）
+        """
+        raise NotImplementedError # 强制子类必须实现此方法
 
+    # 根据当前输入和状态生成输出
+    # 即 将输入(如 在前一时间步生成的词元) 和 编码后的状态 映射成当前时间步的输出词元
+    def forward(self, X, state):
+        """ 解码前向传播接口（需子类实现）
+        X: 当前解码输入（如前一个时间步的词）
+        state: 解码状态（由init_state或前一时间步生成）
+        返回:
+            output: 当前时间步的输出（如预测的词分布）
+            new_state: 更新后的解码状态
+        """
+        raise NotImplementedError # 强制子类必须实现此方法
+
+# 编码器-解码器 架构基类
+class EncoderDecoder(nn.Module):
+    """编码器-解码器架构的基类"""
+    def __init__(self, encoder, decoder, **kwargs):
+        super(EncoderDecoder, self).__init__(**kwargs)
+        self.encoder = encoder  # 编码器实例
+        self.decoder = decoder  # 解码器实例
+
+    """ 端到端前向传播
+    编码器：压缩输入
+    解码器：结合上下文 生成输出
+    enc_X: 编码器输入（如 源语言句子）
+    dec_X: 解码器输入（如 目标语言句子，训练时使用）
+    *args: 可变参数（传递给编码器和解码器）
+    流程:
+        1. 编码阶段: enc_X → enc_outputs
+        2. 初始化解码状态: enc_outputs → dec_state
+        3. 解码阶段: (dec_X, dec_state) → 最终输出
+    返回: 解码器的输出结果
+    """
+    def forward(self, enc_X, dec_X, *args):
+        # 1. 编码阶段：处理输入序列
+        enc_outputs = self.encoder(enc_X, *args)
+        # 2. 初始化解码状态（如RNN的初始隐藏状态）
+        dec_state = self.decoder.init_state(enc_outputs, *args)
+        # 3. 解码阶段：生成输出序列
+        # 注意：这里假设dec_X是完整的目标序列（训练时使用teacher forcing）
+        return self.decoder(dec_X, dec_state)
 
 
 
