@@ -454,6 +454,55 @@ def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
     print(predict('time traveller'))
     print(predict('traveller'))
 
+"""
+在序列中屏蔽不相关的项（将超出有效长度的位置设置为指定值）
+X: 输入张量，可以是二维(batch_size, seq_len)或三维(batch_size, seq_len, features)
+valid_len: 每个序列的有效长度，形状为(batch_size,)
+value: 用于填充无效位置的值，默认为0
+返回: 掩码后的张量，形状与X相同
+"""
+def sequence_mask(X, valid_len, value=0):
+    """在序列中屏蔽不相关的项"""
+    maxlen = X.size(1) # 获取序列的最大长度  .size(1)即第2维
+
+    # 创建位置索引 [0, 1, 2, ..., maxlen-1]，使用与X相同的设备（CPU/GPU）
+    arange = torch.arange(maxlen, dtype=torch.float32, device=X.device)
+
+    # [None, :] 将arange   扩展为 行向量 (1, maxlen)，代表当前第几列，即 该行的第几个长度
+    # [:, None] 将valid_len扩展为 列向量 (batch_size,1)，代表当前行有几个有效长度
+    # 广播比较：每个序列的位置索引 < 该序列的有效长度
+    mask = arange[None, :] < valid_len[:, None] # 创建掩码矩阵
+    """ 即 行向量arange_row < 列向量valid_len_col
+    [[0<1, 1<1, 2<1]  → [True, False, False]
+     [0<2, 1<2, 2<2]] → [True, True, False]
+     注：假设 
+     行向量 arange_row 为 [[0, 1, 2]]
+     列向量 valid_len  为 [[1], [2]]
+    """
+    X[~mask] = value # 将掩码取反，并将无效位置设置为指定值
+    return X
+
+# 带遮蔽的softmax交叉熵损失函数类
+class MaskedSoftmaxCELoss(nn.CrossEntropyLoss):
+    """带遮蔽的softmax交叉熵损失函数"""
+    # pred : 模型预测值，形状 (batch_size,num_steps,vocab_size)
+    # label: 真实标签，形状 (batch_size,num_steps)
+    # valid_len: 每个序列的有效长度，形状 (batch_size,)
+    # 返回: 加权后的损失，形状 (batch_size,)
+    def forward(self, pred, label, valid_len):
+        weights = torch.ones_like(label) # 与label形状相同的权重矩阵，初始值为1
+        weights = sequence_mask(weights, valid_len) # 使用序列掩码函数，将超出有效长度的位置权重设为0
+        self.reduction='none' # 设置父类CrossEntropyLoss为不自动求平均（返回每个位置的损失）
+        # 调用父类计算未加权的交叉熵损失
+        # 注：CrossEntropyLoss期望pred的形状为 (batch_size, num_classes, num_steps)
+        # 所以使用permute(0, 2, 1)调整维度顺序
+        unweighted_loss = super(MaskedSoftmaxCELoss, self).forward(
+            pred.permute(0, 2, 1), # 调整为 (batch_size, vocab_size, num_steps)
+            label)                 # 形状 (batch_size, num_steps)
+        # unweighted_loss * weights 应用权重：有效位置保留原损失值，无效位置乘以0
+        # .mean(dim=1) 对每个序列在时间步维度求平均
+        weighted_loss = (unweighted_loss * weights).mean(dim=1)
+        return weighted_loss # 返回: 加权后的损失，形状 (batch_size,)
 
 # 计时器
 class Timer:  # @save
