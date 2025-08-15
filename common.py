@@ -484,11 +484,12 @@ def sequence_mask(X, valid_len, value=0):
 
 # 带遮蔽的softmax交叉熵损失函数类
 class MaskedSoftmaxCELoss(nn.CrossEntropyLoss):
-    """带遮蔽的softmax交叉熵损失函数"""
-    # pred : 模型预测值，形状 (batch_size,num_steps,vocab_size)
-    # label: 真实标签，形状 (batch_size,num_steps)
-    # valid_len: 每个序列的有效长度，形状 (batch_size,)
-    # 返回: 加权后的损失，形状 (batch_size,)
+    """ 带遮蔽的softmax交叉熵损失函数
+    pred : 模型预测值，形状 (batch_size,num_steps,vocab_size)
+    label: 真实标签，形状 (batch_size,num_steps)
+    valid_len: 每个序列的有效长度，形状 (batch_size,)
+    返回: 加权后的损失，形状 (batch_size,)
+    """
     def forward(self, pred, label, valid_len):
         weights = torch.ones_like(label) # 与label形状相同的权重矩阵，初始值为1
         weights = sequence_mask(weights, valid_len) # 使用序列掩码函数，将超出有效长度的位置权重设为0
@@ -503,6 +504,74 @@ class MaskedSoftmaxCELoss(nn.CrossEntropyLoss):
         # .mean(dim=1) 对每个序列在时间步维度求平均
         weighted_loss = (unweighted_loss * weights).mean(dim=1)
         return weighted_loss # 返回: 加权后的损失，形状 (batch_size,)
+
+# 训练序列到序列模型
+def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
+    """ 训练序列到序列模型
+    net: 编码器-解码器模型
+    data_iter: 数据迭代器，提供训练批次
+    lr: 学习率
+    num_epochs: 训练轮数
+    tgt_vocab: 目标语言词表
+    device: 计算设备(CPU/GPU)
+    """
+    def xavier_init_weights(m):
+        '''权重初始化函数（Xavier初始化）'''
+        # nn.init.xavier_uniform_：根据输入/输出维度自适应缩放权重，适合Sigmoid/Tanh激活函数
+        if type(m) == nn.Linear:
+            nn.init.xavier_uniform_(m.weight) # 线性层权重初始化
+        if type(m) == nn.GRU:
+            for param in m._flat_weights_names: # 遍历GRU的所有参数名
+                if "weight" in param: # 对权重参数进行Xavier初始化
+                    nn.init.xavier_uniform_(m._parameters[param])
+
+    net.apply(xavier_init_weights)  # 应用初始化
+    net.to(device)                  # 移动模型到指定设备
+    optimizer = torch.optim.Adam(net.parameters(), lr=lr) # Adam优化器
+    loss = MaskedSoftmaxCELoss() # 掩码交叉熵损失（忽略填充词元）
+    net.train() # 设置为训练模式
+    animator = Animator(xlabel='epoch', ylabel='loss',
+                     xlim=[10, num_epochs]) # 可视化工具
+    for epoch in range(num_epochs): # 每轮迭代
+        timer = Timer() # 计时器实例化
+        metric = Accumulator(2)  # 累计 训练损失总和，有效词元数量
+        for batch in data_iter: # 当前批量数据(批次训练)
+            optimizer.zero_grad() # 梯度清零(重置)
+            # 获取批量数据并移动到设备
+            # 源语言序列，源语言有效长度；目标语言序列，目标语言有效长度
+            X, X_valid_len, Y, Y_valid_len = [x.to(device) for x in batch]
+
+            # 强制教学：构造解码器输入（Teacher Forcing）
+            #[tgt_vocab['<bos>']] * Y.shape[0]生成长度为Y.shape[0]
+            # （即当前批次的句子数量，batch_size）的列表，元素均为 <bos> 的索引
+            # .reshape(-1, 1)将张量形状 (batch_size,)→(batch_size,1)即每行一个<bos>，方便后续拼接
+            bos = torch.tensor([tgt_vocab['<bos>']] * Y.shape[0],
+                          device=device).reshape(-1, 1) # 起始符号
+            # 将起始符号与(目标序列每一行去除掉最后一列数据后的结果数据)沿轴2即列拼接，即增加列数
+            dec_input = torch.cat([bos, Y[:, :-1]], 1)  # 拼接<bos>和去掉最后一个词的目标序列
+
+            # 强制教学 vs 自回归：
+            # 代码中显式使用真实标签构造dec_input，属于【强制教学】
+            # 若需自回归训练，需修改dec_input为模型预测结果（通常结合调度采样）
+            Y_hat, _ = net(X, dec_input, X_valid_len) # 前向传播（编码器+解码器）模型预测
+
+            l = loss(Y_hat, Y, Y_valid_len) # 计算损失（仅对有效词元）
+            l.sum().backward()              # 损失函数的标量进行“反向传播”
+            grad_clipping(net, 1)     # 梯度裁剪防止爆炸(梯度裁剪阈值为1)(裁剪梯度必须在反向传播后)
+
+            # 更新指标
+            num_tokens = Y_valid_len.sum()  # 当前批次的有效词元总数
+            optimizer.step()                # 根据梯度更新模型参数
+            with torch.no_grad():           # 避免在更新指标时产生不必要的计算图
+                metric.add(l.sum(), num_tokens) # 累加 总损失和词元数
+        if (epoch + 1) % 10 == 0: # 每10轮可视化训练损失
+            avg_loss = metric[0] / metric[1]  # 平均损失
+            animator.add(epoch + 1, (avg_loss,))
+    # 最终训练结果
+    avg_loss = metric[0] / metric[1]
+    tokens_per_sec = metric[1] / timer.stop()
+    print(f'loss {avg_loss:.3f}, {tokens_per_sec:.1f}  tokens/sec on {str(device)}')
+
 
 # 计时器
 class Timer:  # @save

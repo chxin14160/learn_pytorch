@@ -678,4 +678,22 @@ result = loss(
 print(f"计算损失：{result}")
 
 
+# 词嵌入维度32，隐藏层维度32，rnn层数2，随机失活率0.1
+embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+batch_size, num_steps = 64, 10 # 批量大小和序列长度
+lr, num_epochs, device = 0.005, 300, common.try_gpu() # 学习率，训练轮数
+
+# 加载数据（法语→英语翻译示例）
+# 数据迭代器，源语言的词表，目标语言的词表
+train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
+
+# 定义编码器（双向GRU）和解码器（单向GRU）
+encoder = Seq2SeqEncoder(len(src_vocab), # 源语言词表大小
+                        embed_size, num_hiddens, num_layers,dropout)
+decoder = Seq2SeqDecoder(len(tgt_vocab), # 目标语言词表大小
+                        embed_size, num_hiddens, num_layers,dropout)
+net = common.EncoderDecoder(encoder, decoder) # 组合为Seq2Seq模型
+common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device) # 启动训练
+
+
 
