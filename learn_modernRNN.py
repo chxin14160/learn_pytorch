@@ -695,5 +695,19 @@ decoder = Seq2SeqDecoder(len(tgt_vocab), # 目标语言词表大小
 net = common.EncoderDecoder(encoder, decoder) # 组合为Seq2Seq模型
 common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device) # 启动训练
 
+# 英语句子列表（源语言）
+engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
+# 对应的法语句子列表（目标语言/参考译文）
+fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
+for eng, fra in zip(engs, fras): # 遍历每个英语-法语句子对
+    # 使用seq2seq模型进行翻译预测
+    translation, attention_weight_seq = common.predict_seq2seq(
+        net, eng, src_vocab, tgt_vocab, num_steps, device)
+    # 计算并打印BLEU分数（使用1-gram和2-gram）
+    bleu_score = common.bleu(translation, fra, k=2)
+    # 输出结果：原句 => 预测翻译, BLEU分数
+    print(f'源({eng}) => 预测({translation}), 相似度评估bleu {bleu_score:.3f}')
+
+
 
 

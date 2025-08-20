@@ -573,6 +573,94 @@ def train_seq2seq(net, data_iter, lr, num_epochs, tgt_vocab, device):
     print(f'loss {avg_loss:.3f}, {tokens_per_sec:.1f}  tokens/sec on {str(device)}')
 
 
+def predict_seq2seq(net, src_sentence, src_vocab, tgt_vocab, num_steps,
+                    device, save_attention_weights=False):
+    """序列到序列模型的预测
+    net         : 训练好的序列到序列模型
+    src_sentence: 源语言句子（字符串）
+    src_vocab   : 源语言词汇表
+    tgt_vocab   : 目标语言词汇表
+    num_steps   : 序列的最大长度（包括填充）
+    device      : 使用的设备（如'cpu'或'cuda'）
+    save_attention_weights: 是否保存注意力权重（默认为False）
+    """
+    net.eval() # 预测时将net设为评估模式
+    # 1. 处理源语言输入序列
+    # 将源句子统一转小写 → 按空格分词 → 从词转为词索引 → 末尾加上结束符<eos>
+    src_tokens = src_vocab[src_sentence.lower().split(' ')] + [
+        src_vocab['<eos>']]
+    # 创建有效长度张量（实际非填充token数）
+    enc_valid_len = torch.tensor([len(src_tokens)], device=device)
+    # 对源序列进行填充/截断，使其长度等于num_steps
+    src_tokens = truncate_pad(src_tokens, num_steps, src_vocab['<pad>'])
+    # 添加批量轴（batch_size=1）并转换为张量
+    # 在第0维添加一个维度，即 批量大小维度
+    enc_X = torch.unsqueeze(
+        torch.tensor(src_tokens, dtype=torch.long, device=device), dim=0)
+    # 2. 编码器处理（长度可变序列 → 固定形状的编码状态）
+    # 通过编码器获取上下文信息（enc_outputs包含隐藏状态/记忆单元）
+    enc_outputs = net.encoder(enc_X, enc_valid_len)
+    # 3. 初始化解码器状态
+    # 使用编码器输出初始化解码器的初始状态
+    dec_state = net.decoder.init_state(enc_outputs, enc_valid_len)
+    # 4. 准备解码器初始输入
+    # 创建以<bos>（序列开始符）开头的目标序列张量，添加批量轴
+    dec_X = torch.unsqueeze(torch.tensor(
+        [tgt_vocab['<bos>']], dtype=torch.long, device=device), dim=0)
+    output_seq, attention_weight_seq = [], [] # 初始化输出序列和注意力权重容器
+    # 5. 自回归生成序列
+    for _ in range(num_steps): # 循环生成最多num_steps个token
+        Y, dec_state = net.decoder(dec_X, dec_state) # 解码器前向传播（生成 预测和更新状态）
+        # 使用具有预测最高可能性的词元，作为解码器在下一时间步的输入
+        dec_X = Y.argmax(dim=2) # 选择预测概率最高的词元（贪婪搜索策略）第2维的最大值索引
+        # 提取预测词元的索引（移除批量维度→类型转为32位整数→从单元素张量中提取标量值）
+        pred = dec_X.squeeze(dim=0).type(torch.int32).item()
+        # 保存注意力权重（稍后讨论）
+        if save_attention_weights: # 可选：保存当前时间步的注意力权重
+            attention_weight_seq.append(net.decoder.attention_weights)
+        # 一旦序列结束词元被预测，输出序列的生成就完成了
+        if pred == tgt_vocab['<eos>']: # 终止条件：预测到结束符<eos>
+            break
+        output_seq.append(pred) # 将预测词元添加到输出序列
+    # 6. 后处理并返回结果
+    # 将索引序列 转换为 目标语言词元字符串
+    return ' '.join(tgt_vocab.to_tokens(output_seq)), attention_weight_seq
+
+def bleu(pred_seq, label_seq, k):  #@save
+    """计算BLEU：评估 预测序列与真实标签序列的相似度"""
+    # 预测序列与标签序列皆以空格分割为token词元列表
+    pred_tokens, label_tokens = pred_seq.split(' '), label_seq.split(' ')
+    len_pred, len_label = len(pred_tokens), len(label_tokens) # 获取序列长度
+    # 计算简洁惩罚（Brevity Penalty, BP）
+    # 当预测长度 >  参考长度时：BP=1 即无惩罚（这里用min(0, ...)来调整）任何数的0次方=1
+    # 当预测长度 <= 参考长度时：BP = e^(1 - len_ref/len_pred)，即 使用指数形式惩罚过短序列
+    BP = math.exp(min(0, 1 - len_label / len_pred))
+    score = BP # 初始化BLEU分数（先乘以BP）
+    for n in range(1, k + 1): # 遍历1-gram到k-gram，计算加权精度
+        # 统计标签序列中的n-gram
+        label_subs = collections.defaultdict(int) # 存储标签序列中n-gram的出现次数(存入字典)
+        for i in range(len_label - n + 1):
+            ngram = ' '.join(label_tokens[i: i + n]) # 创建n-gram字符串(用空格连接词元)
+            label_subs[ngram] += 1 # 记录出现次数
+
+        # 在预测序列中匹配n-gram
+        num_matches = 0 # 匹配的n-gram计数
+        for i in range(len_pred - n + 1):
+            ngram = ' '.join(pred_tokens[i: i + n]) # 预测序列中的待匹配成员
+            if label_subs[ngram] > 0: # 若n-gram存在于参考译文中且计数>0
+                num_matches += 1
+                label_subs[ngram] -= 1 # 避免重复匹配，且截断计数(预测中<=标签中的出现次数)
+        # 计算当前n-gram的精度（p_n）
+        # 当 len_pred < n 时，p_n 设为 0（无法提取 n-gram）
+        p_n = num_matches / (len_pred - n + 1) if len_pred >= n else 0 # 避免除零错误
+        # 累积到总分数，即 累积加权精度
+        # （原代码问题：权重应为固定值如0.25，而非0.5^n）
+        weight = 1 / k  # BLEU通常采用均匀权重
+        weight = math.pow(0.5, n) # 使用指数加权：权重=0.5^n
+        score *= math.pow(p_n, weight) # 几何平均
+    return score
+
+
 # 计时器
 class Timer:  # @save
     """记录多次运行时间"""
