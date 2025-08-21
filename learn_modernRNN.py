@@ -512,202 +512,203 @@ learn_MachinaTranslation_and_Data()
 
 
 
-# 用于序列到序列学习（seq2seq）的循环神经网络编码器
-class Seq2SeqEncoder(common.Encoder):
-    """用于序列到序列学习的循环神经网络编码器"""
-    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
-                 dropout=0, **kwargs):
-        super(Seq2SeqEncoder, self).__init__(**kwargs)
-        # 嵌入层:获得输入序列中每个词元的特征向量
-        # 将词元索引转换为密集向量（vocab_size → embed_size）
-        self.embedding = nn.Embedding(vocab_size, embed_size)
+def learn_Seq2Seq():
+    # 用于序列到序列学习（seq2seq）的循环神经网络编码器
+    class Seq2SeqEncoder(common.Encoder):
+        """用于序列到序列学习的循环神经网络编码器"""
+        def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+                     dropout=0, **kwargs):
+            super(Seq2SeqEncoder, self).__init__(**kwargs)
+            # 嵌入层:获得输入序列中每个词元的特征向量
+            # 将词元索引转换为密集向量（vocab_size → embed_size）
+            self.embedding = nn.Embedding(vocab_size, embed_size)
 
-        # 循环神经网络（GRU）
-        # embed_size: 输入特征维度（嵌入层输出维度）
-        # num_hiddens: 隐状态维度
-        # num_layers: 堆叠的RNN层数
-        # dropout: 层间dropout概率（仅在num_layers>1时生效
-        self.rnn = nn.GRU(embed_size, num_hiddens, num_layers,
-                          dropout=dropout)
+            # 循环神经网络（GRU）
+            # embed_size: 输入特征维度（嵌入层输出维度）
+            # num_hiddens: 隐状态维度
+            # num_layers: 堆叠的RNN层数
+            # dropout: 层间dropout概率（仅在num_layers>1时生效
+            self.rnn = nn.GRU(embed_size, num_hiddens, num_layers,
+                              dropout=dropout)
 
-    def forward(self, X, *args): # 前向传播逻辑
-        # 输出'X'的形状：(batch_size,num_steps,embed_size)
-        X = self.embedding(X) # 嵌入层处理：(bch_sz, num_steps)→ (bch_sz, num_steps, embed_size)
+        def forward(self, X, *args): # 前向传播逻辑
+            # 输出'X'的形状：(batch_size,num_steps,embed_size)
+            X = self.embedding(X) # 嵌入层处理：(bch_sz, num_steps)→ (bch_sz, num_steps, embed_size)
 
-        # permute(1, 0, 2)交换前两维，即 时间步和批次维度
-        # 因为在循环神经网络模型中，轴一对应于时间步
-        # 即 RNN要求输入形状为 (num_steps, batch_size, embed_size)
-        X = X.permute(1, 0, 2) # 形状变为 (num_steps, batch_size, embed_size)
+            # permute(1, 0, 2)交换前两维，即 时间步和批次维度
+            # 因为在循环神经网络模型中，轴一对应于时间步
+            # 即 RNN要求输入形状为 (num_steps, batch_size, embed_size)
+            X = X.permute(1, 0, 2) # 形状变为 (num_steps, batch_size, embed_size)
 
-        # RNN处理
-        # 默认初始隐状态state=None时，自动初始化为全零
-        # 若未提及状态，则默认为0
-        output, state = self.rnn(X)
+            # RNN处理
+            # 默认初始隐状态state=None时，自动初始化为全零
+            # 若未提及状态，则默认为0
+            output, state = self.rnn(X)
 
-        # output的形状:(num_steps,batch_size,num_hiddens)
-        # state的形状:(num_layers,batch_size,num_hiddens)
-        return output, state # 所有时间步的隐状态，最后一层的最终隐状态
+            # output的形状:(num_steps,batch_size,num_hiddens)
+            # state的形状:(num_layers,batch_size,num_hiddens)
+            return output, state # 所有时间步的隐状态，最后一层的最终隐状态
 
-encoder = Seq2SeqEncoder(vocab_size=10,  # 词表大小 即 输入维度为10
-                         embed_size=8,   # 每个单词被表示为8维的向量，即 特征向量的维度
-                         num_hiddens=16, # 隐藏层的维度 即 单个隐藏层的神经元数量
-                         num_layers=2)   # 隐藏层的堆叠次数为2
-encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
-# 模拟输入：4个序列（batch_size=4），每个序列7个时间步（num_steps=7）
-X = torch.zeros((4, 7), dtype=torch.long)
-output, state = encoder(X) # 前向传播
-print(f"最后一层的隐状态的输出(所有时间步)：{output.shape}")
-print(f"最后一个时间步的多层隐状态的形状：{state.shape}")
+    encoder = Seq2SeqEncoder(vocab_size=10,  # 词表大小 即 输入维度为10
+                             embed_size=8,   # 每个单词被表示为8维的向量，即 特征向量的维度
+                             num_hiddens=16, # 隐藏层的维度 即 单个隐藏层的神经元数量
+                             num_layers=2)   # 隐藏层的堆叠次数为2
+    encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    # 模拟输入：4个序列（batch_size=4），每个序列7个时间步（num_steps=7）
+    X = torch.zeros((4, 7), dtype=torch.long)
+    output, state = encoder(X) # 前向传播
+    print(f"最后一层的隐状态的输出(所有时间步)：{output.shape}")
+    print(f"最后一个时间步的多层隐状态的形状：{state.shape}")
 
 
-# 用于序列到序列学习（seq2seq）的循环神经网络解码器
-class Seq2SeqDecoder(common.Decoder):
-    """用于序列到序列学习的循环神经网络解码器"""
-    """ 初始化解码器
-    vocab_size : 目标语言词表大小
-    embed_size : 词嵌入维度
-    num_hiddens: GRU隐藏层大小，即 隐藏层维度
-    num_layers : GRU层数
-    dropout    : 随机失活率（防止过拟合）
+    # 用于序列到序列学习（seq2seq）的循环神经网络解码器
+    class Seq2SeqDecoder(common.Decoder):
+        """用于序列到序列学习的循环神经网络解码器"""
+        """ 初始化解码器
+        vocab_size : 目标语言词表大小
+        embed_size : 词嵌入维度
+        num_hiddens: GRU隐藏层大小，即 隐藏层维度
+        num_layers : GRU层数
+        dropout    : 随机失活率（防止过拟合）
+        """
+        def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+                     dropout=0, **kwargs):
+            super(Seq2SeqDecoder, self).__init__(**kwargs)
+            # 词嵌入层：将词汇表索引转换为稠密向量
+            self.embedding = nn.Embedding(vocab_size, embed_size)
+            # GRU解码器核心：
+            # 输入维度 = embed_size（当前输入） + num_hiddens（上下文变量）
+            # 上下文向量：来自编码器的最终隐藏状态(这种设计允许解码器访问源序列信息)
+            # 隐藏层维度 = num_hiddens
+            # 层数 = num_layers
+            self.rnn = nn.GRU(embed_size + num_hiddens, num_hiddens, num_layers,
+                              dropout=dropout)
+            # 输出层：将RNN隐藏状态映射到词汇表空间
+            self.dense = nn.Linear(num_hiddens, vocab_size)
+
+        # enc_outputs: 编码器的输出元组 (output, state)
+        def init_state(self, enc_outputs, *args):
+            """初始化解码器状态（使用编码器最后一层的隐藏状态）"""
+            # enc_outputs[1] 是编码器RNN的最终隐藏状态
+            # 形状：(num_layers, batch_size, num_hiddens)
+            return enc_outputs[1] # 返回:解码器的初始状态（直接使用编码器的最终隐藏状态）
+
+        """
+        前向传播逻辑：
+        X: 当前时间步的输入（解码器输入序列），形状 (batch_size, num_steps)
+        state: 编码器提供的初始隐藏状态（或上一步的隐藏状态）
+        返回:
+        output: 预测输出，形状 (batch_size, num_steps, vocab_size)
+        state: 更新后的隐藏状态
+        """
+        def forward(self, X, state):
+            # 1. 词嵌入：将输入索引转换为向量
+            # self.embedding(X) 将输入索引转换为向量，
+            #       形状(batch_size,num_steps)→(batch_size,num_steps,embed_size)
+            # .permute(1, 0, 2) 将前两个维度位置交换，(PyTorch的RNN要求序列维度在前)
+            #       形状(batch_size,num_steps,embed_size)→(num_steps,batch_size,embed_size)
+            X = self.embedding(X).permute(1, 0, 2) # 形状(num_steps,batch_size,embed_size)
+
+            # 2. 准备上下文变量（来自编码器的最终隐藏状态）
+            # state[-1] 取最后一层的隐藏状态，形状：(batch_size, num_hiddens)
+            # .repeat(X.shape[0], 1, 1)扩展时间步维度，使其与X的num_steps一致
+            # 即 沿第一维重复直至扩展为 与X的第0维num_steps同大小
+            # 广播context，使其具有与X相同的num_steps
+            context = state[-1].repeat(X.shape[0], 1, 1) # 形状：(num_steps,batch_size,num_hiddens)
+
+            # 3. 拼接当前输入和上下文变量（沿第3维拼接）
+            # X_and_context形状：(num_steps, batch_size, embed_size + num_hiddens)
+            X_and_context = torch.cat((X, context), 2)
+
+            # 4. RNN处理：输入拼接后的张量，更新隐藏状态
+            # output形状：(num_steps, batch_size, num_hiddens)
+            # state形状：(num_layers, batch_size, num_hiddens)
+            output, state = self.rnn(X_and_context, state)
+
+            # 5. 生成预测：将RNN输出映射到词汇表空间
+            # 调整维度顺序为 (batch_size, num_steps, vocab_size)
+            output = self.dense(output).permute(1, 0, 2)
+            # output的形状:(batch_size,num_steps,vocab_size)  预测输出
+            # state的形状:(num_layers,batch_size,num_hiddens) 更新后的隐藏状态
+            return output, state
+
+    # 目标词汇大小为10，嵌入维度为8
+    # 隐藏层维度为16(与编码器隐藏层大小相同)，隐藏层堆叠次数为2(与编码器层数相同)
+    decoder = Seq2SeqDecoder(vocab_size=10, embed_size=8, num_hiddens=16,
+                             num_layers=2)
+    decoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    state = decoder.init_state(encoder(X)) # 初始化解码器状态
+    output, state = decoder(X, state) # 前向传播
+    output.shape, state.shape
+    print(f"解码器的输出(所有时间步)：{output.shape}")
+    print(f"最后一个时间步的多层隐状态的形状：{state.shape}")
+
+
+    X = torch.tensor([[1, 2, 3], [4, 5, 6]])
+    print(f"假设两个序列的有效长度（不包括填充词元）分别为1和2 ↓"
+          f"\n屏蔽前的原始序列：\n{X}"
+          f"\n在序列中屏蔽不相关的项后 的序列效果："
+          f"\n{common.sequence_mask(X, torch.tensor([1, 2]))}")
+
+    X = torch.ones(2, 3, 4)
+    print(f"屏蔽最后几个轴上的所有项，且使用指定的非零值-1来替换这些项 ↓"
+          f"\n屏蔽前的原始序列：\n{X}"
+          f"\n在序列中屏蔽不相关的项后 的序列效果："
+          f"\n{common.sequence_mask(X, torch.tensor([1, 2]), value=-1)}")
+    """ 输出效果解析：
+    第一个序列 (有效长度1):
+      [
+        [1,1,1,1],  # 保留
+        [-1,-1,-1,-1], # 掩码
+        [-1,-1,-1,-1]  # 掩码
+      ]
+    第二个序列 (有效长度2):
+      [
+        [1,1,1,1],  # 保留
+        [1,1,1,1],  # 保留
+        [-1,-1,-1,-1] # 掩码
+      ]
     """
-    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
-                 dropout=0, **kwargs):
-        super(Seq2SeqDecoder, self).__init__(**kwargs)
-        # 词嵌入层：将词汇表索引转换为稠密向量
-        self.embedding = nn.Embedding(vocab_size, embed_size)
-        # GRU解码器核心：
-        # 输入维度 = embed_size（当前输入） + num_hiddens（上下文变量）
-        # 上下文向量：来自编码器的最终隐藏状态(这种设计允许解码器访问源序列信息)
-        # 隐藏层维度 = num_hiddens
-        # 层数 = num_layers
-        self.rnn = nn.GRU(embed_size + num_hiddens, num_hiddens, num_layers,
-                          dropout=dropout)
-        # 输出层：将RNN隐藏状态映射到词汇表空间
-        self.dense = nn.Linear(num_hiddens, vocab_size)
 
-    # enc_outputs: 编码器的输出元组 (output, state)
-    def init_state(self, enc_outputs, *args):
-        """初始化解码器状态（使用编码器最后一层的隐藏状态）"""
-        # enc_outputs[1] 是编码器RNN的最终隐藏状态
-        # 形状：(num_layers, batch_size, num_hiddens)
-        return enc_outputs[1] # 返回:解码器的初始状态（直接使用编码器的最终隐藏状态）
-
-    """
-    前向传播逻辑：
-    X: 当前时间步的输入（解码器输入序列），形状 (batch_size, num_steps)
-    state: 编码器提供的初始隐藏状态（或上一步的隐藏状态）
-    返回:
-    output: 预测输出，形状 (batch_size, num_steps, vocab_size)
-    state: 更新后的隐藏状态
-    """
-    def forward(self, X, state):
-        # 1. 词嵌入：将输入索引转换为向量
-        # self.embedding(X) 将输入索引转换为向量，
-        #       形状(batch_size,num_steps)→(batch_size,num_steps,embed_size)
-        # .permute(1, 0, 2) 将前两个维度位置交换，(PyTorch的RNN要求序列维度在前)
-        #       形状(batch_size,num_steps,embed_size)→(num_steps,batch_size,embed_size)
-        X = self.embedding(X).permute(1, 0, 2) # 形状(num_steps,batch_size,embed_size)
-
-        # 2. 准备上下文变量（来自编码器的最终隐藏状态）
-        # state[-1] 取最后一层的隐藏状态，形状：(batch_size, num_hiddens)
-        # .repeat(X.shape[0], 1, 1)扩展时间步维度，使其与X的num_steps一致
-        # 即 沿第一维重复直至扩展为 与X的第0维num_steps同大小
-        # 广播context，使其具有与X相同的num_steps
-        context = state[-1].repeat(X.shape[0], 1, 1) # 形状：(num_steps,batch_size,num_hiddens)
-
-        # 3. 拼接当前输入和上下文变量（沿第3维拼接）
-        # X_and_context形状：(num_steps, batch_size, embed_size + num_hiddens)
-        X_and_context = torch.cat((X, context), 2)
-
-        # 4. RNN处理：输入拼接后的张量，更新隐藏状态
-        # output形状：(num_steps, batch_size, num_hiddens)
-        # state形状：(num_layers, batch_size, num_hiddens)
-        output, state = self.rnn(X_and_context, state)
-
-        # 5. 生成预测：将RNN输出映射到词汇表空间
-        # 调整维度顺序为 (batch_size, num_steps, vocab_size)
-        output = self.dense(output).permute(1, 0, 2)
-        # output的形状:(batch_size,num_steps,vocab_size)  预测输出
-        # state的形状:(num_layers,batch_size,num_hiddens) 更新后的隐藏状态
-        return output, state
-
-# 目标词汇大小为10，嵌入维度为8
-# 隐藏层维度为16(与编码器隐藏层大小相同)，隐藏层堆叠次数为2(与编码器层数相同)
-decoder = Seq2SeqDecoder(vocab_size=10, embed_size=8, num_hiddens=16,
-                         num_layers=2)
-decoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
-state = decoder.init_state(encoder(X)) # 初始化解码器状态
-output, state = decoder(X, state) # 前向传播
-output.shape, state.shape
-print(f"解码器的输出(所有时间步)：{output.shape}")
-print(f"最后一个时间步的多层隐状态的形状：{state.shape}")
+    loss = common.MaskedSoftmaxCELoss() # 创建损失函数实例
+    # 计算损失
+    result = loss(
+         torch.ones(3, 4, 10),  # pred：3个序列，4个时间步，10个词汇表
+         torch.ones((3, 4), dtype=torch.long),  # label：所有标签为1
+         torch.tensor([4, 2, 0]))               # valid_len：有效长度
+    print(f"计算损失：{result}")
 
 
-X = torch.tensor([[1, 2, 3], [4, 5, 6]])
-print(f"假设两个序列的有效长度（不包括填充词元）分别为1和2 ↓"
-      f"\n屏蔽前的原始序列：\n{X}"
-      f"\n在序列中屏蔽不相关的项后 的序列效果："
-      f"\n{common.sequence_mask(X, torch.tensor([1, 2]))}")
+    # 词嵌入维度32，隐藏层维度32，rnn层数2，随机失活率0.1
+    embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+    batch_size, num_steps = 64, 10 # 批量大小和序列长度
+    lr, num_epochs, device = 0.005, 300, common.try_gpu() # 学习率，训练轮数
 
-X = torch.ones(2, 3, 4)
-print(f"屏蔽最后几个轴上的所有项，且使用指定的非零值-1来替换这些项 ↓"
-      f"\n屏蔽前的原始序列：\n{X}"
-      f"\n在序列中屏蔽不相关的项后 的序列效果："
-      f"\n{common.sequence_mask(X, torch.tensor([1, 2]), value=-1)}")
-""" 输出效果解析：
-第一个序列 (有效长度1):
-  [
-    [1,1,1,1],  # 保留
-    [-1,-1,-1,-1], # 掩码
-    [-1,-1,-1,-1]  # 掩码
-  ]
-第二个序列 (有效长度2):
-  [
-    [1,1,1,1],  # 保留
-    [1,1,1,1],  # 保留
-    [-1,-1,-1,-1] # 掩码
-  ]
-"""
+    # 加载数据（法语→英语翻译示例）
+    # 数据迭代器，源语言的词表，目标语言的词表
+    train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
 
-loss = common.MaskedSoftmaxCELoss() # 创建损失函数实例
-# 计算损失
-result = loss(
-     torch.ones(3, 4, 10),  # pred：3个序列，4个时间步，10个词汇表
-     torch.ones((3, 4), dtype=torch.long),  # label：所有标签为1
-     torch.tensor([4, 2, 0]))               # valid_len：有效长度
-print(f"计算损失：{result}")
+    # 定义编码器（双向GRU）和解码器（单向GRU）
+    encoder = Seq2SeqEncoder(len(src_vocab), # 源语言词表大小
+                            embed_size, num_hiddens, num_layers,dropout)
+    decoder = Seq2SeqDecoder(len(tgt_vocab), # 目标语言词表大小
+                            embed_size, num_hiddens, num_layers,dropout)
+    net = common.EncoderDecoder(encoder, decoder) # 组合为Seq2Seq模型
+    common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device) # 启动训练
 
-
-# 词嵌入维度32，隐藏层维度32，rnn层数2，随机失活率0.1
-embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
-batch_size, num_steps = 64, 10 # 批量大小和序列长度
-lr, num_epochs, device = 0.005, 300, common.try_gpu() # 学习率，训练轮数
-
-# 加载数据（法语→英语翻译示例）
-# 数据迭代器，源语言的词表，目标语言的词表
-train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
-
-# 定义编码器（双向GRU）和解码器（单向GRU）
-encoder = Seq2SeqEncoder(len(src_vocab), # 源语言词表大小
-                        embed_size, num_hiddens, num_layers,dropout)
-decoder = Seq2SeqDecoder(len(tgt_vocab), # 目标语言词表大小
-                        embed_size, num_hiddens, num_layers,dropout)
-net = common.EncoderDecoder(encoder, decoder) # 组合为Seq2Seq模型
-common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device) # 启动训练
-
-# 英语句子列表（源语言）
-engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
-# 对应的法语句子列表（目标语言/参考译文）
-fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
-for eng, fra in zip(engs, fras): # 遍历每个英语-法语句子对
-    # 使用seq2seq模型进行翻译预测
-    translation, attention_weight_seq = common.predict_seq2seq(
-        net, eng, src_vocab, tgt_vocab, num_steps, device)
-    # 计算并打印BLEU分数（使用1-gram和2-gram）
-    bleu_score = common.bleu(translation, fra, k=2)
-    # 输出结果：原句 => 预测翻译, BLEU分数
-    print(f'源({eng}) => 预测({translation}), 相似度评估bleu {bleu_score:.3f}')
-
+    # 英语句子列表（源语言）
+    engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
+    # 对应的法语句子列表（目标语言/参考译文）
+    fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
+    for eng, fra in zip(engs, fras): # 遍历每个英语-法语句子对
+        # 使用seq2seq模型进行翻译预测
+        translation, attention_weight_seq = common.predict_seq2seq(
+            net, eng, src_vocab, tgt_vocab, num_steps, device)
+        # 计算并打印BLEU分数（使用1-gram和2-gram）
+        bleu_score = common.bleu(translation, fra, k=2)
+        # 输出结果：原句 => 预测翻译, BLEU分数
+        print(f'源({eng}) => 预测({translation}), 相似度评估bleu {bleu_score:.3f}')
+# learn_Seq2Seq()
 
 
 
