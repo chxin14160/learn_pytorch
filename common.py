@@ -661,6 +661,54 @@ def bleu(pred_seq, label_seq, k):  #@save
     return score
 
 
+def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
+                  cmap='Reds'):
+    """ 显示矩阵热图
+    matrices: 4D数组 (要显示的行数，要显示的列数，查询的数目，键的数目)
+    xlabel (str)    : x轴标签
+    ylabel (str)    : y轴标签
+    titles (list)   : 子图标题列表（可选，数量应等于要显示的列数）
+    figsize (tuple) : 每个子图的图形大小（英寸）
+    cmap (str)      : 颜色映射名称（如'Reds', 'viridis'）
+    SVG(Scalable Vector Graphics，可缩放矢量图形)适合简单图形(图标、图表、Logo),基于XML的矢量图形格式
+    """
+    # 设置Matplotlib使用SVG后端（在Jupyter或PyCharm中生效）
+    plt.rcParams['figure.dpi'] = 100            # 可选：调整分辨率
+    plt.rcParams['svg.fonttype'] = 'none'       # 确保文本可编辑（SVG 特性）
+    plt.rcParams['figure.facecolor'] = 'white'  # 可选：设置背景色
+
+    # 获取矩阵的行数和列数
+    num_rows, num_cols = matrices.shape[0], matrices.shape[1]
+
+    # 创建子图
+    fig, axes = plt.subplots(num_rows, num_cols,       # 子图的行数和列数
+                             figsize=figsize,          # 图形大小（宽, 高）
+                             sharex=True, sharey=True, # 所有子图 共享xy轴（避免重复标签）
+                             squeeze=False) # squeeze=False 强制axes始终是二维，即使只有一行或一列
+    # 遍历所有子图
+    for i in range(num_rows):
+        for j in range(num_cols):
+            ax = axes[i, j]         # 获取当前子图
+            matrix = matrices[i, j] # 获取当前子图对应的矩阵 (查询数×键数)
+            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap) # 绘制热图，cmap为颜色映射
+            # 设置标签（只在边缘子图显示）
+            if i == num_rows - 1:
+                ax.set_xlabel(xlabel) # Keys
+            if j == 0:
+                ax.set_ylabel(ylabel) # Queries
+
+            # 设置标题（使用titles[j]确保每列标题一致）
+            if titles and j < len(titles):
+                ax.set_title(titles[j])
+
+    plt.tight_layout() # 调整布局防止重叠
+    # 添加全局颜色条（使用最后一个子图的pcm）
+    # shrink=0.6 颜色条的长度比例缩放，缩小为60%
+    # location='right' 颜色条位置处右侧
+    fig.colorbar(pcm, ax=axes, shrink=0.6, location='right')
+    plt.show()
+
+
 # 计时器
 class Timer:  # @save
     """记录多次运行时间"""
