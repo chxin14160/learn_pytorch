@@ -138,6 +138,40 @@ def plot(X, Y=None, xlabel=None, ylabel=None, legend=None,
     plt.tight_layout()  # 自动调整子图参数，使之填充整个图像区域，防止标签溢出
     plt.show()
 
+def plot_kernel_reg(x_test, y_truth, y_hat,
+                    x_train, y_train):
+    '''绘制所有的训练样本（样本由圆圈表示）
+    不带噪声项的真实数据生成函数 f（标记为“Truth”）
+    学习得到的预测函数（标记为“Pred”）
+    y_hat   ：预测值数组
+    x_train ：训练数据x坐标
+    y_train ：训练数据y坐标
+    x_test  ：测试数据x坐标(用于绘制真实曲线和预测曲线)
+    y_truth ：真实值数组(对应x_test)
+    '''
+    # 使用 constrained_layout 替代 tight_layout
+    plt.figure(figsize=(4, 3), constrained_layout=True) # 启用约束布局
+    # 绘制  测试数据的真实输出 和 预测输出
+    plt.plot(x_test, y_truth, label='Truth', linestyle='-', linewidth=1)
+    plt.plot(x_test, y_hat, label='Pred', linestyle='--', linewidth=1, color='m')
+    # plot(x_test, [y_truth, y_hat], 'x', 'y', legend=['Truth', 'Pred'], xlim=[0, 5], ylim=[-1, 5])
+
+    # 绘制 训练数据信息
+    # plt.plot(x_train, y_train, 'o', alpha=0.5, label='Train Data')
+    plt.scatter(x_train, y_train, color='orange', alpha=0.5, label='Train Data')
+
+    # 设置图形属性
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.xlim(0, 5)
+    plt.ylim(-1, 5)
+    plt.legend()
+    plt.grid(True)
+    plt.title('Kernel Regression Comparison')
+    # plt.tight_layout() # 调整布局防止标签被截断
+    plt.show()
+
+
 def load_array(data_arrays, batch_size, is_train=True):
     dataset = TensorDataset(*data_arrays)
     return DataLoader(dataset, batch_size, shuffle=is_train)
