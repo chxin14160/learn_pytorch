@@ -699,6 +699,7 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
                   cmap='Reds'):
     """ 显示矩阵热图
     matrices: 4D数组 (要显示的行数，要显示的列数，查询的数目，键的数目)
+             可以是PyTorch张量或NumPy数组
     xlabel (str)    : x轴标签
     ylabel (str)    : y轴标签
     titles (list)   : 子图标题列表（可选，数量应等于要显示的列数）
@@ -719,12 +720,23 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
                              figsize=figsize,          # 图形大小（宽, 高）
                              sharex=True, sharey=True, # 所有子图 共享xy轴（避免重复标签）
                              squeeze=False) # squeeze=False 强制axes始终是二维，即使只有一行或一列
+    pcm = None # 初始化一个pcm变量用于颜色条
+
     # 遍历所有子图
     for i in range(num_rows):
         for j in range(num_cols):
             ax = axes[i, j]         # 获取当前子图
             matrix = matrices[i, j] # 获取当前子图对应的矩阵 (查询数×键数)
-            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap) # 绘制热图，cmap为颜色映射
+
+            # 处理不同类型的输入
+            if hasattr(matrix, 'detach'):  # 如果是PyTorch张量
+                matrix_data = matrix.detach().numpy()
+            elif isinstance(matrix, np.ndarray):  # 如果是NumPy数组
+                matrix_data = matrix
+            else:  # 其他类型尝试转换为NumPy数组
+                matrix_data = np.array(matrix)
+
+            pcm = ax.imshow(matrix_data, cmap=cmap) # 绘制热图，cmap为颜色映射
             # 设置标签（只在边缘子图显示）
             if i == num_rows - 1:
                 ax.set_xlabel(xlabel) # Keys
@@ -737,9 +749,10 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
 
     plt.tight_layout() # 调整布局防止重叠
     # 添加全局颜色条（使用最后一个子图的pcm）
-    # shrink=0.6 颜色条的长度比例缩放，缩小为60%
-    # location='right' 颜色条位置处右侧
-    fig.colorbar(pcm, ax=axes, shrink=0.6, location='right')
+    if pcm is not None:
+        # shrink=0.6 颜色条的长度比例缩放，缩小为60%
+        # location='right' 颜色条位置处右侧
+        fig.colorbar(pcm, ax=axes, shrink=0.6, location='right')
     plt.show()
 
 
