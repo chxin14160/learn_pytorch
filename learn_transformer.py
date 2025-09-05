@@ -83,7 +83,7 @@ def nonParametric_attention_aggregation():
 # nonParametric_attention_aggregation()
 
 # def parametric_attention_aggregation():
-# 👉 参数注意力汇聚
+# 👉 带参数注意力汇聚
 X = torch.ones((2, 1, 4))
 Y = torch.ones((2, 4, 6))
 print(f"批量矩阵乘法bmm后，结果矩阵形状：{torch.bmm(X, Y).shape}")
