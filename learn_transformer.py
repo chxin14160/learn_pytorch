@@ -132,14 +132,21 @@ class NWKernelRegression(nn.Module):
 # 生成训练数据的所有组合（用于自注意力）
 # X_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输入
 # Y_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输出
+# x_train第0维元素重复x_train次，第2维元素重复一次
 X_tile = x_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 Y_tile = y_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 
 # 创建键和值（排除对角线元素，即自身  避免自匹配）
 # mask 用于排除自匹配（即查询点不与自身计算注意力）
+# 1与对角线为1的单位矩阵做差，再转换为bool类型
 mask = (1 - torch.eye(n_train)).type(torch.bool) # 形状 (n_train, n_train)
+# 等效于以下两种方法
+# mask = ~torch.eye(n_train, dtype=torch.bool) # 方法2：直接创建布尔掩码（更高效）
+# mask = (torch.eye(n_train) == 0) # 方法3：使用比较操作
+
 # keys的形状  :('n_train'，'n_train'-1)
 # values的形状:('n_train'，'n_train'-1)
+# 通过掩码mask从X_tile中选择元素(每行元素皆少了一个)，然后再重新排列(行数不变)
 keys   = X_tile[mask].reshape((n_train, -1)) # 形状 (n_train, n_train-1)
 values = Y_tile[mask].reshape((n_train, -1)) # 形状 (n_train, n_train-1)
 
