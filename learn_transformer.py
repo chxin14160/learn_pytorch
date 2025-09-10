@@ -101,7 +101,10 @@ print(f"增加维度后 进行 批量矩阵乘法bmm，结果为：\n"
 
 
 class NWKernelRegression(nn.Module):
-    ''' Nadaraya-Watson 核回归模型,实现基于注意力机制的核回归 '''
+    ''' Nadaraya-Watson 核回归模型,实现基于注意力机制的核回归
+    实现Nadaraya-Watson核回归的非参数方法，通过注意力机制对输入数据进行加权平均
+    使用高斯核函数来计算查询与键之间的相似度，并将这些相似度作为权重对值进行加权求和
+    '''
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # 可学习的参数 (高斯核的带宽参数)，即 查询与键间距离要乘以的权重
@@ -109,30 +112,44 @@ class NWKernelRegression(nn.Module):
 
     def forward(self, queries, keys, values):
         '''
-        queries : 查询输入 (n_query, dim)
-        keys    : 训练输入 (n_train, dim)
-        values  : 训练输出 (n_train, dim)
+        queries : 查询输入 (n_query,)，有n_query个查询
+        keys    : 训练输入 (n_query, n_train)，即 每个查询对应n_train个键
+        values  : 训练输出 (n_query, n_train)
         # queries 和 attention_weights的形状为 (查询个数，“键－值”对个数)
+        返回: 加权求和后的预测值 (n_query,)
         '''
         # 扩展 查询向量queries形状 以匹配 键值对keys的维度
         # queries形状: (查询个数,) -> 扩展为 (查询个数, 键值对个数)
+        # 将查询的每个元素重复 键的列数次
+        # 然后将查询的形状重塑为 列维与键的行维相等的 矩阵形式 (第i行元素皆为第i个查询)
+        # 由此可使查询拥有 与键相同的形状
         queries = queries.repeat_interleave(keys.shape[1]).reshape((-1, keys.shape[1]))
+
         # 计算注意力权重（使用高斯核函数）
         # 公式: attention = softmax(-(query - key)^2 * w^2 / 2)
-        # 注意力权重通过高斯核 exp(-(x_query-x_key)^2 / (2σ^2)) 计算，这里用softmax归一化
+        # 注意力权重通过高斯核 exp(-(x_query-x_key)^2 / (2σ^2)) 计算，
+        # 使用softmax进行归一化，确保所有权重之和为1
         self.attention_weights = nn.functional.softmax(
             -((queries - keys) * self.w) ** 2 / 2, dim=1) # 形状 (n_query, n_train)
+
         # 使用注意力权重对值进行加权求和得到预测值
         # bmm: (批量大小, 1, 键值对个数) × (批量大小, 键值对个数, 1) = (批量大小, 1, 1)
         # values的形状为(查询个数，“键－值”对个数)
-        return torch.bmm(self.attention_weights.unsqueeze(1), # (n_query, 1, n_train)
-                         values.unsqueeze(-1)).reshape(-1) # (n_query, 1, 1) → (n_query,)
+        # 注意力权重：在除批次维以外的第一维增加一维；值：在最后一维增加一个维度
+        # 然后各自增维后的注意力权重与值 执行批量矩阵乘法，计算完成后重塑形状
+        return (torch.bmm(self.attention_weights.unsqueeze(1), # (n_query, 1, n_train)
+                         values.unsqueeze(-1)) # (n_query, n_train, 1)
+                         .reshape(-1)) # (n_query, 1, 1) → (n_query,)
+
+print(f"x_train.shape={x_train.shape}") # ([50])
+print(f"repeat((n_train, 1)).shape={x_train.repeat((n_train, 1)).shape}") # ([50, 50])
 
 # 准备训练时的 keys 和 values
 # 生成训练数据的所有组合（用于自注意力）
 # X_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输入
 # Y_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输出
-# x_train第0维元素重复x_train次，第2维元素重复一次
+# x_train第0维元素重复x_train次(对用训练数据的个数)，第2维元素重复一次(不变)
+# 原本x_train是长度为50的向量形状，.repeat后形状变为(50, 50)
 X_tile = x_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 Y_tile = y_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 
@@ -169,7 +186,9 @@ for epoch in range(5):
 
 # 测试阶段：每个测试点与所有训练点计算注意力
 # keys的形状 :(n_test，n_train)，每一行包含着相同的训练输入（例如，相同的键）
-# value的形状:(n_test，n_train)
+# value的形状:(n_test，n_train)，每一行都包含相同的训练输出（例如，相同的值）
+# x_train第0维元素重复x_train次(对用训练数据的个数)，第2维元素重复一次(不变)
+# 原本x_train是长度为50的向量形状，.repeat后键和值的形状变为(50, 50)
 keys   = x_train.repeat((n_test, 1)) # 形状 (n_test, n_train)
 values = y_train.repeat((n_test, 1)) # 形状 (n_test, n_train)
 y_hat = net(x_test, keys, values).unsqueeze(1).detach() # 预测
