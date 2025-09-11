@@ -144,26 +144,26 @@ class NWKernelRegression(nn.Module):
 print(f"x_train.shape={x_train.shape}") # ([50])
 print(f"repeat((n_train, 1)).shape={x_train.repeat((n_train, 1)).shape}") # ([50, 50])
 
-# 准备训练时的 keys 和 values
-# 生成训练数据的所有组合（用于自注意力）
+# 准备训练时的 keys 和 values （用于自注意力）
 # X_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输入
 # Y_tile的形状:(n_train，n_train)，每一行都包含着相同的训练输出
-# x_train第0维元素重复x_train次(对用训练数据的个数)，第2维元素重复一次(不变)
-# 原本x_train是长度为50的向量形状，.repeat后形状变为(50, 50)
+# x_train第0维直接重复x_train次(对应训练数据的个数)，第1维重复一次(保持不变)
+# 原本x_train是长度为50的向量形状，.repeat后形状变为(训练数据总是, 50)
 X_tile = x_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 Y_tile = y_train.repeat((n_train, 1)) # 形状 (n_train * n_train, dim)
 
-# 创建键和值（排除对角线元素，即自身  避免自匹配）
+# （排除对角线元素，即自身。避免自匹配）
 # mask 用于排除自匹配（即查询点不与自身计算注意力）
-# 1与对角线为1的单位矩阵做差，再转换为bool类型
+# 1与对角线为1的单位矩阵做差，再转换为bool类型 (使对角区域为false，以便排除)
 mask = (1 - torch.eye(n_train)).type(torch.bool) # 形状 (n_train, n_train)
 # 等效于以下两种方法
 # mask = ~torch.eye(n_train, dtype=torch.bool) # 方法2：直接创建布尔掩码（更高效）
 # mask = (torch.eye(n_train) == 0) # 方法3：使用比较操作
 
+# 创建键和值
 # keys的形状  :('n_train'，'n_train'-1)
 # values的形状:('n_train'，'n_train'-1)
-# 通过掩码mask从X_tile中选择元素(每行元素皆少了一个)，然后再重新排列(行数不变)
+# 通过掩码mask从 _tile中选择元素(每行元素皆少了对角线位置的那个)，然后再重新排列(行数不变)
 keys   = X_tile[mask].reshape((n_train, -1)) # 形状 (n_train, n_train-1)
 values = Y_tile[mask].reshape((n_train, -1)) # 形状 (n_train, n_train-1)
 
@@ -187,8 +187,8 @@ for epoch in range(5):
 # 测试阶段：每个测试点与所有训练点计算注意力
 # keys的形状 :(n_test，n_train)，每一行包含着相同的训练输入（例如，相同的键）
 # value的形状:(n_test，n_train)，每一行都包含相同的训练输出（例如，相同的值）
-# x_train第0维元素重复x_train次(对用训练数据的个数)，第2维元素重复一次(不变)
-# 原本x_train是长度为50的向量形状，.repeat后键和值的形状变为(50, 50)
+# x_train第0维元素重复n_test次(对应测试数据的个数)，第2维元素重复一次(不变)
+# 原本x_train是长度为50的向量形状，.repeat后键和值的形状变为(测试数据总数, 50)
 keys   = x_train.repeat((n_test, 1)) # 形状 (n_test, n_train)
 values = y_train.repeat((n_test, 1)) # 形状 (n_test, n_train)
 y_hat = net(x_test, keys, values).unsqueeze(1).detach() # 预测
