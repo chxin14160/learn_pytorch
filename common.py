@@ -496,7 +496,13 @@ value: 用于填充无效位置的值，默认为0
 返回: 掩码后的张量，形状与X相同
 """
 def sequence_mask(X, valid_len, value=0):
-    """在序列中屏蔽不相关的项"""
+    """在序列中屏蔽不相关的项
+    在序列中屏蔽不相关的项（将超出有效长度的位置设置为指定值）
+    X: 输入张量，可以是二维(batch_size, seq_len)或三维(batch_size, seq_len, features)
+    valid_len: 每个序列的有效长度，形状为(batch_size,)
+    value: 用于填充无效位置的值，默认为0
+    返回: 掩码后的张量，形状与X相同
+    """
     maxlen = X.size(1) # 获取序列的最大长度  .size(1)即第2维
 
     # 创建位置索引 [0, 1, 2, ..., maxlen-1]，使用与X相同的设备（CPU/GPU）
@@ -754,6 +760,47 @@ def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
         # location='right' 颜色条位置处右侧
         fig.colorbar(pcm, ax=axes, shrink=0.6, location='right')
     plt.show()
+
+def masked_softmax(X, valid_lens):
+    """带掩码的softmax函数，用于处理变长序列：通过在最后一个轴上掩蔽元素来执行softmax操作
+    掩膜后，则只保留了每个序列中有效的特征维度（无效的都变为0）
+    X         : 3D张量，待掩膜的矩阵，
+                形状为 (批次batch_size, 序列长度seq_length, 特征维度feature_dim)
+    valid_lens: 每个样本的有效长度（非填充位置），1D或2D张量
+                - None: 不使用掩码
+                - 1D: 每个序列的有效长度
+                - 2D: 每个序列中每个位置的有效长度
+    返回: 经过掩蔽处理的softmax结果，形状与X相同
+    """
+    if valid_lens is None: # 没有提供有效长度，则直接执行标准softmax
+        return nn.functional.softmax(X, dim=-1) # dim=-1是沿最后一维进行softmax归一化
+    else:
+        shape = X.shape # 张量形状
+        if valid_lens.dim() == 1:
+            # 当valid_lens是1D时：扩展为与X第二维匹配
+            # 如 batch_size=2, seq_length=3，valid_lens=[2,1] (两个序列的有效长度分别为2和1)
+            # -> 扩展为 [len1, len1, len1, len2, len2, len2]，即 [2,2,2,1,1,1]
+            # 输入的有效长度为1维，每个元素对应原矩阵中每个序列(每行)的有效长度
+            # 因此将有效长度向量中，每个元素重复，重复次数对应每批次的序列数量(原矩阵的第1维)
+            valid_lens = torch.repeat_interleave(valid_lens, shape[1])
+        else:
+            # 当valid_lens是2D时：展平为一维张量
+            # 因为有效长度为2d时，就是已经细分了每个序列自己的有效长度，因此直接展平即可
+            # 例如valid_lens = [[2, 2, 1], [1, 0, 0]](每个序列中每个位置的有效长度)
+            # - 展平后: [2, 2, 1, 1, 0, 0]
+            valid_lens = valid_lens.reshape(-1)
+
+        # 核心掩蔽操作：
+        # 1. X.reshape(-1, shape[-1])将X重塑为二维张量(batch_size * seq_length, feature_dim)
+        # 2. 使用sequence_mask生成掩码：
+        #    - 有效位置保持原值
+        #    - 无效位置（超出有效长度的位置）被替换为 -1e6（极大负值）
+        # 3. 经过softmax后，无效位置输出概率接近0
+        # 最后一轴上被掩蔽的元素使用一个非常大的负值替换，从而其softmax输出为0
+        X = sequence_mask(X.reshape(-1, shape[-1]), valid_lens,
+                              value=-1e6)
+        # 恢复原始形状并执行softmax
+        return nn.functional.softmax(X.reshape(shape), dim=-1)
 
 
 # 计时器
