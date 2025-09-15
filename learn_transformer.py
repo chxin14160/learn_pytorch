@@ -205,6 +205,15 @@ def parametric_attention_aggregation():
 # parametric_attention_aggregation()
 
 
+print(f"两个有效长度分别为2和3的 2×4矩阵，经过掩蔽softmax操作后结果：\n"
+      f"{common.masked_softmax(torch.rand(2, 2, 4), torch.tensor([2, 3]))}")
+
+print(f"以二维张量作为输入指定每行的有效长度：\n"
+      f"{common.masked_softmax(torch.rand(2, 2, 4), torch.tensor([[1, 3], [2, 4]]))}")
+
+
+
+
 
 plt.pause(4444)  # 间隔的秒数： 4s
 
