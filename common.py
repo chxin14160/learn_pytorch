@@ -1511,6 +1511,72 @@ class EncoderDecoder(nn.Module):
         # 注意：这里假设dec_X是完整的目标序列（训练时使用teacher forcing）
         return self.decoder(dec_X, dec_state)
 
+class AdditiveAttention(nn.Module):
+    """ 加性注意力机制（Additive Attention/ Bahdanau Attention）
+    通过全连接层和tanh激活计算注意力分数，适用于查询和键维度不同的情况
+    key_size    : 键向量的维度
+    query_size  : 查询向量的维度
+    num_hiddens : 隐藏层大小（注意力计算中间层的维度）
+    dropout     : dropout比率
+    kwargs      : 其他传递给父类的参数
+    加性注意力通过将查询和键映射到同一空间并相加，然后通过一个单层前馈网络计算注意力分数
+    自己理解：
+    就是这个工具人小型神经网络中，只有一个隐藏层(全连接层)(用于转相同维度)，和一个输出层(用于转单个标量)
+    键和查询皆通过这个神经网络，经隐藏层后映射到相同维度，然后再结合，再经过线性层映射为标量，得到权重值
+    结合方式是 广播求和再经过非线性函数tanh。
+    得到注意力权重后，再经过随机失活层再与值做批量矩阵乘法得到预测值。
+    """
+    def __init__(self, key_size, query_size, num_hiddens, dropout, **kwargs):
+        super(AdditiveAttention, self).__init__(**kwargs)
+        # 将键和查询映射到相同隐藏空间的全连接层
+        self.W_k = nn.Linear(key_size, num_hiddens, bias=False)     # 键变换矩阵
+        self.W_q = nn.Linear(query_size, num_hiddens, bias=False)   # 查询变换矩阵
+        # 将隐藏状态映射到标量分数的线性变换
+        # 输出单分数值的全连接层（相当于注意力权重向量）
+        self.w_v = nn.Linear(num_hiddens, 1, bias=False) # 分数计算层
+        self.dropout = nn.Dropout(dropout)  # 注意力权重dropout，防止过拟合
+
+    def forward(self, queries, keys, values, valid_lens):
+        '''
+        queries     : 查询向量 [batch_size, 查询个数num_queries, query_size]
+        keys        : 键向量   [batch_size, 键值对个数num_kv_pairs, key_size]
+        values      : 值向量   [batch_size, 键值对个数num_kv_pairs, value_size]
+        valid_lens  : 有效长度 [batch_size,] 或 [batch_size, num_queries] 用于掩码处理
+        返回：注意力加权后的值向量 [batch_size, num_queries, value_size]
+        '''
+        # 投影变换：将查询和键映射到相同维度的隐藏空间
+        queries, keys = self.W_q(queries), self.W_k(keys) # 形状变为 [batch_size, *, num_hiddens]
+        # （核心步骤）
+        # 以便进行广播相加，在维度扩展后：
+        # queries 添加中间维度 -> [batch_size, num_queries, 1, num_hiddens]
+        # keys    添加第二维度 -> [batch_size, 1, num_kv_pairs, num_hiddens]
+        # queries的形状：(batch_size，查询的个数，1，num_hidden)
+        # key的形状：(batch_size，1，“键－值”对的个数，num_hiddens)
+        # 广播方式求和，使每个查询与所有键相加，自动扩展为 [batch_size, num_queries, num_kv_pairs, num_hiddens]
+        features = queries.unsqueeze(2) + keys.unsqueeze(1)
+        features = torch.tanh(features) # 非线性变换(原始论文使用tanh)，保持形状不变
+
+        # 通过线性层计算注意力分数（原始论文的a(s,h)计算）
+        # 通过w_v将特征映射为标量分数 -> [batch_size, num_queries, num_kv_pairs, 1]
+        # 移除最后一个维度 -> [batch_size, num_queries, num_kv_pairs]
+        # self.w_v仅有一个输出，因此从形状中移除最后那个维度
+        # scores的形状：(batch_size，查询的个数，“键-值”对的个数)
+        scores = self.w_v(features).squeeze(-1)
+
+        # 应用掩码softmax获取归一化注意力权重
+        self.attention_weights = masked_softmax(scores, valid_lens)
+
+        # 注意力对值进行加权求和（使用dropout正则化）
+        # torch.bmm批矩阵乘法：
+        # [batch_size, num_queries, num_kv_pairs] × [batch_size, num_kv_pairs, value_size]
+        # 结果形状 -> [batch_size, num_queries, value_size]
+        # values的形状：(batch_size，“键－值”对的个数，值的维度)
+        return torch.bmm(self.dropout(self.attention_weights), values)
+
+
+
+
+
 
 
 # import matplotlib.pyplot as plt
