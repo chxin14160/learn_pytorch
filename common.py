@@ -1552,7 +1552,8 @@ class AdditiveAttention(nn.Module):
         # keys    添加第二维度 -> [batch_size, 1, num_kv_pairs, num_hiddens]
         # queries的形状：(batch_size，查询的个数，1，num_hidden)
         # key的形状：(batch_size，1，“键－值”对的个数，num_hiddens)
-        # 广播方式求和，使每个查询与所有键相加，自动扩展为 [batch_size, num_queries, num_kv_pairs, num_hiddens]
+        # 广播方式求和，使每个查询与所有键相加，
+        # 自动扩展为 [batch_size, 查询数num_queries, 键值对数num_kv_pairs, num_hiddens]
         features = queries.unsqueeze(2) + keys.unsqueeze(1)
         features = torch.tanh(features) # 非线性变换(原始论文使用tanh)，保持形状不变
 
@@ -1561,7 +1562,7 @@ class AdditiveAttention(nn.Module):
         # 移除最后一个维度 -> [batch_size, num_queries, num_kv_pairs]
         # self.w_v仅有一个输出，因此从形状中移除最后那个维度
         # scores的形状：(batch_size，查询的个数，“键-值”对的个数)
-        scores = self.w_v(features).squeeze(-1)
+        scores = self.w_v(features).squeeze(-1) # 将特征映射为一个标量
 
         # 应用掩码softmax获取归一化注意力权重
         self.attention_weights = masked_softmax(scores, valid_lens)
