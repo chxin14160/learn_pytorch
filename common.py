@@ -1554,7 +1554,7 @@ class AdditiveAttention(nn.Module):
         # key的形状：(batch_size，1，“键－值”对的个数，num_hiddens)
         # 广播方式求和，使每个查询与所有键相加，
         # 自动扩展为 [batch_size, 查询数num_queries, 键值对数num_kv_pairs, num_hiddens]
-        features = queries.unsqueeze(2) + keys.unsqueeze(1)
+        features = queries.unsqueeze(2) + keys.unsqueeze(1) # 创建每个查询-键对的联合表征
         features = torch.tanh(features) # 非线性变换(原始论文使用tanh)，保持形状不变
 
         # 通过线性层计算注意力分数（原始论文的a(s,h)计算）
