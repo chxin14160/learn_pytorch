@@ -1514,6 +1514,7 @@ class EncoderDecoder(nn.Module):
 class AdditiveAttention(nn.Module):
     """ 加性注意力机制（Additive Attention/ Bahdanau Attention）
     通过全连接层和tanh激活计算注意力分数，适用于查询和键维度不同的情况
+    这里的类成员变量说的维度皆是指特征维度
     key_size    : 键向量的维度
     query_size  : 查询向量的维度
     num_hiddens : 隐藏层大小（注意力计算中间层的维度）
