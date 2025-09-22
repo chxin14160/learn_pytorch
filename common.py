@@ -1576,6 +1576,44 @@ class AdditiveAttention(nn.Module):
         # values的形状：(batch_size，“键－值”对的个数，值的维度)
         return torch.bmm(self.dropout(self.attention_weights), values)
 
+class DotProductAttention(nn.Module):
+    """ 缩放点积注意力（Scaled Dot-Product Attention）
+    通过点积计算查询和键的相似度，并用缩放因子稳定训练过程
+    dropout: 注意力权重的随机失活率
+    """
+    def __init__(self, dropout, **kwargs):
+        super(DotProductAttention, self).__init__(**kwargs)
+        self.dropout = nn.Dropout(dropout) # 初始化随机失活层
+
+    def forward(self, queries, keys, values, valid_lens=None):
+        '''
+        queries   : (batch_size，查询的个数，d)
+        keys      : (batch_size，“键－值”对的个数，d)
+        values    : (batch_size，“键－值”对的个数，值的维度)
+        valid_lens: (batch_size，)或(batch_size，查询的个数)
+        return:注意力加权后的值向量 [batch_size, num_queries, value_dim]
+        '''
+        d = queries.shape[-1] # 获取查询和键的特征维度d（用于缩放）
+
+        # 1：计算点积分数（原始注意力分数）
+        # 设置transpose_b=True为了交换keys的最后两个维度
+        # keys.transpose(1,2)：将键的最后两维转置，即 从(b,nk,d)变为(b,d,nk)
+        # 数学等价：对每个查询向量q和键向量k计算q·k^T 即 q乘以k的转置
+        # 缩放因子：/ math.sqrt(d)防止高维点积数值过大，避免梯度消失
+        # 矩阵乘法：查询q形状(b,nq,d) × k转置形状(b,d,nk) → 点积分数scores形状(b,nq,nk)
+        scores = torch.bmm(queries, keys.transpose(1,2)) / math.sqrt(d)
+
+        # 2：应用掩码softmax归一化
+        # 根据有效长度屏蔽无效位置，并归一化得到注意力权重
+        self.attention_weights = masked_softmax(scores, valid_lens)
+
+        # 3：注意力权重与值向量加权求和
+        # 注意力权重(在训练时会随机失活)与值做批量矩阵乘法
+        # 矩阵乘法：weights形状(b,nq,nk) × values形状(b,nk,vd) → 输出形状(b,nq,vd)
+        return torch.bmm(self.dropout(self.attention_weights), values)
+
+
+
 
 
 

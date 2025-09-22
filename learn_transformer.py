@@ -205,9 +205,9 @@ def parametric_attention_aggregation():
 # parametric_attention_aggregation()
 
 
+# 演示：掩蔽softmax操作
 print(f"两个有效长度分别为2和3的 2×4矩阵，经过掩蔽softmax操作后结果：\n"
       f"{common.masked_softmax(torch.rand(2, 2, 4), torch.tensor([2, 3]))}")
-
 print(f"以二维张量作为输入指定每行的有效长度：\n"
       f"{common.masked_softmax(torch.rand(2, 2, 4), torch.tensor([[1, 3], [2, 4]]))}")
 
@@ -220,20 +220,37 @@ queries, keys = torch.normal(0, 1, (2, 1, 20)), torch.ones((2, 10, 2))
 values = torch.arange(40, dtype=torch.float32).reshape(1, 10, 4).repeat(2, 1, 1)
 valid_lens = torch.tensor([2, 6]) # 两个批量的有效长度分别为2和6
 
-# 注意力汇聚输出的形状为（批量大小，查询的步数，值的维度）
-# 将特征维度q20与k2映射到同一空间hidden8，再广播
-attention = common.AdditiveAttention( # 初始化加性注意力层
-    key_size    =2,     # 键向量维度（与keys的最后一维匹配）
-    query_size  =20,    # 查询向量维度（与queries的最后一维匹配）
-    num_hiddens =8,     # 隐藏层大小（注意力计算空间维度）
-    dropout     =0.1)   # 注意力权重随机丢弃率
+def learn_AdditiveAttention():
+    ''' 加性注意力机制 '''
+    # 注意力汇聚输出的形状为（批量大小，查询的步数，值的维度）
+    # 将特征维度q20与k2映射到同一空间hidden8，再广播
+    attention = common.AdditiveAttention( # 初始化加性注意力层
+        key_size    =2,     # 键向量维度（与keys的最后一维匹配）
+        query_size  =20,    # 查询向量维度（与queries的最后一维匹配）
+        num_hiddens =8,     # 隐藏层大小（注意力计算空间维度）
+        dropout     =0.1)   # 注意力权重随机丢弃率
 
-attention.eval() # 设置为评估模式（关闭dropout）
-output = attention(queries, keys, values, valid_lens)
-print(f"注意力输出结果:\n{output}")
+    attention.eval() # 设置为评估模式（关闭dropout）
+    output = attention(queries, keys, values, valid_lens)
+    print(f"加性注意力输出结果:\n{output}")
+    common.show_heatmaps(attention.attention_weights.reshape((1, 1, 2, 10)),
+                      xlabel='Keys', ylabel='Queries')
+# learn_AdditiveAttention()
 
-common.show_heatmaps(attention.attention_weights.reshape((1, 1, 2, 10)),
-                  xlabel='Keys', ylabel='Queries')
+def learn_DotProductAttention():
+    ''' 放缩点积注意力机制 '''
+    # 查询从均值为0，标准差为1的正态分布中随机抽取指来初始化
+    # 批次为2即两个样本，每个样本1个查询即1个序列，序列特征即查询的特征维度为2(与键的特征维度相同)
+    queries = torch.normal(0, 1, (2, 1, 2))
+    # 训练时会随机丢弃50%的注意力权重（当前eval模式关闭）
+    attention = common.DotProductAttention(dropout=0.5) # 初始化放缩点积注意力层
+    attention.eval() # 设置为评估模式（关闭dropout等训练专用操作）
+    output = attention(queries, keys, values, valid_lens) # 前向传播计算
+    print(f"放缩点积注意力输出结果:\n{output}")
+
+    common.show_heatmaps(attention.attention_weights.reshape((1, 1, 2, 10)),
+                      xlabel='Keys', ylabel='Queries')
+# learn_DotProductAttention()
 
 
 
