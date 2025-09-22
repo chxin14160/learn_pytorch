@@ -1565,6 +1565,7 @@ class AdditiveAttention(nn.Module):
         scores = self.w_v(features).squeeze(-1) # 将特征映射为一个标量
 
         # 应用掩码softmax获取归一化注意力权重
+        # 只保留有效位置的数据然后进行归一化
         self.attention_weights = masked_softmax(scores, valid_lens)
 
         # 注意力对值进行加权求和（使用dropout正则化）
