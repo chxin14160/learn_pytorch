@@ -261,9 +261,13 @@ encoder.eval()
 decoder = common.Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16,
                                   num_layers=2)
 decoder.eval()
+# 假设batch_size=4, seq_len=7
 X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
-state = decoder.init_state(encoder(X), None)
-output, state = decoder(X, state)
+# 编码器处理
+enc_outputs = encoder(X)  # outputs: (4,7,16), hidden_state: (2,4,16)
+# 解码器初始化
+state = decoder.init_state(enc_outputs, None) # outputs调整为(7,4,16)
+output, state = decoder(X, state) # 解码（假设输入X作为初始输入）
 output.shape, len(state), state[0].shape, len(state[1]), state[1][0].shape
 
 

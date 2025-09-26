@@ -1620,54 +1620,82 @@ class AttentionDecoder(Decoder):
 
     @property
     def attention_weights(self):
+        ''' 用于返回注意力权重（可视化对齐关系） '''
         raise NotImplementedError # 强制子类必须实现此方法
 
 class Seq2SeqAttentionDecoder(AttentionDecoder):
     def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
                  dropout=0, **kwargs):
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
+        # 加性注意力模块（查询、键、值的维度均为num_hiddens）
         self.attention = AdditiveAttention(
-            num_hiddens, num_hiddens, num_hiddens, dropout)
+            num_hiddens, num_hiddens, num_hiddens, dropout) # 实现Bahdanau的加性注意力机制
+        # 词嵌入层（将词元ID映射为向量）
         self.embedding = nn.Embedding(vocab_size, embed_size)
+        # GRU(门控循环单元)循环神经网络（输入=词嵌入+上下文向量，输出隐藏状态）
         self.rnn = nn.GRU(
-            embed_size + num_hiddens, num_hiddens, num_layers,
+            embed_size + num_hiddens, # 输入维度为 词嵌入+上下文向量
+            num_hiddens, num_layers,
             dropout=dropout)
-        self.dense = nn.Linear(num_hiddens, vocab_size)
+        self.dense = nn.Linear(num_hiddens, vocab_size) # 输出全连接层（隐藏状态→词表概率分布）
 
     def init_state(self, enc_outputs, enc_valid_lens, *args):
+        ''' 处理编码器输出，准备解码器初始状态
+        :param enc_outputs: 编码器的输出（outputs, hidden_state）
+        :param enc_valid_lens:
+        :param args:
+        :return:
+            outputs：编码器所有时间步的隐藏状态（用于注意力计算）
+            hidden_state：编码器最终隐藏状态（解码器初始状态）
+            enc_valid_lens：源序列的有效长度（掩码处理用）
+        '''
         # outputs的形状为(batch_size，num_steps，num_hiddens).
         # hidden_state的形状为(num_layers，batch_size，num_hiddens)
         outputs, hidden_state = enc_outputs
+        # 调整outputs维度为(num_steps, batch_size, num_hiddens)
         return (outputs.permute(1, 0, 2), hidden_state, enc_valid_lens)
 
     def forward(self, X, state):
+        # 解包状态：编码器输出、隐藏状态、有效长度
         # enc_outputs的形状为(batch_size,num_steps,num_hiddens).
         # hidden_state的形状为(num_layers,batch_size,
         # num_hiddens)
         enc_outputs, hidden_state, enc_valid_lens = state
-        # 输出X的形状为(num_steps,batch_size,embed_size)
-        X = self.embedding(X).permute(1, 0, 2)
+        # 词嵌入(将输入词元ID转换为向量)
+        # 并调整维度：(batch_size, num_steps, embed_size)→(num_steps, batch_size, embed_size)
+        X = self.embedding(X).permute(1, 0, 2) # 输出X的形状(num_steps,batch_size,embed_size)
+
         outputs, self._attention_weights = [], []
-        for x in X:
-            # query的形状为(batch_size,1,num_hiddens)
-            query = torch.unsqueeze(hidden_state[-1], dim=1)
-            # context的形状为(batch_size,1,num_hiddens)
-            context = self.attention(
+        for x in X: # 逐时间步处理(解码)
+            # 查询向量：取解码器最后一个隐藏层状态hidden_state[-1]（最顶层GRU的输出）
+            query = torch.unsqueeze(hidden_state[-1], dim=1) # 形状(batch_size,1,num_hiddens)
+
+            # 计算上下文向量（Bahdanau注意力的核心）
+            # 通过加性注意力计算，权重由 query和编码器状态 enc_outputs决定
+            context = self.attention( # 形状(batch_size,1,num_hiddens)
                 query, enc_outputs, enc_outputs, enc_valid_lens)
-            # 在特征维度上连结
+
+            # 在特征维度上连结 (拼接上下文向量和当前词嵌入)
             x = torch.cat((context, torch.unsqueeze(x, dim=1)), dim=-1)
+
+            # GRU计算：将上下文向量与当前词嵌入拼接后输入GRU
+            # 输入形状 (1, batch_size, embed_size+num_hiddens)
             # 将x变形为(1,batch_size,embed_size+num_hiddens)
             out, hidden_state = self.rnn(x.permute(1, 0, 2), hidden_state)
             outputs.append(out)
             self._attention_weights.append(self.attention.attention_weights)
-        # 全连接层变换后，outputs的形状为
-        # (num_steps,batch_size,vocab_size)
+
+        # 合并所有时间步的输出并投影到词表空间
+        # 全连接层变换后，outputs的形状为(num_steps,batch_size,vocab_size)
         outputs = self.dense(torch.cat(outputs, dim=0))
         return outputs.permute(1, 0, 2), [enc_outputs, hidden_state,
                                           enc_valid_lens]
 
     @property
     def attention_weights(self):
+        ''' 注意力权重访问
+        返回：每个解码时间步的注意力权重（用于可视化对齐关系）
+        '''
         return self._attention_weights
 
 
