@@ -1620,31 +1620,41 @@ class AttentionDecoder(Decoder):
 
     @property
     def attention_weights(self):
-        ''' 用于返回注意力权重（可视化对齐关系） '''
+        """注意力权重属性，
+        子类必须实现此方法
+        以返回注意力权重（可视化对齐关系）"""
         raise NotImplementedError # 强制子类必须实现此方法
 
 class Seq2SeqAttentionDecoder(AttentionDecoder):
+    """ 带有注意力机制的 序列到序列解码器 """
     def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
                  dropout=0, **kwargs):
+        """ 初始化注意力解码器
+        vocab_size : 词汇表大小
+        embed_size : 词嵌入维度
+        num_hiddens: 隐藏层维度
+        num_layers : RNN层数
+        dropout: Dropout比率
+        """
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
-        # 加性注意力模块（查询、键、值的维度均为num_hiddens）
+        # 加性注意力模块：查询、键、值的维度均为num_hiddens
         self.attention = AdditiveAttention(
             num_hiddens, num_hiddens, num_hiddens, dropout) # 实现Bahdanau的加性注意力机制
-        # 词嵌入层（将词元ID映射为向量）
+        # 词嵌入层：将词元ID映射为向量
         self.embedding = nn.Embedding(vocab_size, embed_size)
         # GRU(门控循环单元)循环神经网络（输入=词嵌入+上下文向量，输出隐藏状态）
         self.rnn = nn.GRU(
             embed_size + num_hiddens, # 输入维度为 词嵌入+上下文向量
             num_hiddens, num_layers,
             dropout=dropout)
-        self.dense = nn.Linear(num_hiddens, vocab_size) # 输出全连接层（隐藏状态→词表概率分布）
+        # 输出全连接层：将隐藏状态映射回词汇表空间
+        self.dense = nn.Linear(num_hiddens, vocab_size) # （隐藏状态→词表概率分布）
 
     def init_state(self, enc_outputs, enc_valid_lens, *args):
         ''' 处理编码器输出，准备解码器初始状态
-        :param enc_outputs: 编码器的输出（outputs, hidden_state）
-        :param enc_valid_lens:
-        :param args:
-        :return:
+        enc_outputs: 编码器的输出（outputs, hidden_state）
+        enc_valid_lens:编码器有效长度
+        返回：解码器初始状态
             outputs：编码器所有时间步的隐藏状态（用于注意力计算）
             hidden_state：编码器最终隐藏状态（解码器初始状态）
             enc_valid_lens：源序列的有效长度（掩码处理用）
@@ -1656,16 +1666,22 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         return (outputs.permute(1, 0, 2), hidden_state, enc_valid_lens)
 
     def forward(self, X, state):
+        '''
+        X: 输入序列，形状为(batch_size, num_steps)
+        state: 解码器状态
+        返回:
+            outputs: 输出序列，形状为(batch_size, num_steps, vocab_size)
+            state: 更新后的状态
+        '''
         # 解包状态：编码器输出、隐藏状态、有效长度
-        # enc_outputs的形状为(batch_size,num_steps,num_hiddens).
-        # hidden_state的形状为(num_layers,batch_size,
-        # num_hiddens)
+        # enc_outputs 形状(batch_size,num_steps ,num_hiddens)
+        # hidden_state形状(num_layers,batch_size,num_hiddens)
         enc_outputs, hidden_state, enc_valid_lens = state
         # 词嵌入(将输入词元ID转换为向量)
         # 并调整维度：(batch_size, num_steps, embed_size)→(num_steps, batch_size, embed_size)
         X = self.embedding(X).permute(1, 0, 2) # 输出X的形状(num_steps,batch_size,embed_size)
 
-        outputs, self._attention_weights = [], []
+        outputs, self._attention_weights = [], [] # 存储输出和注意力权重
         for x in X: # 逐时间步处理(解码)
             # 查询向量：取解码器最后一个隐藏层状态hidden_state[-1]（最顶层GRU的输出）
             query = torch.unsqueeze(hidden_state[-1], dim=1) # 形状(batch_size,1,num_hiddens)
@@ -1678,11 +1694,13 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
             # 在特征维度上连结 (拼接上下文向量和当前词嵌入)
             x = torch.cat((context, torch.unsqueeze(x, dim=1)), dim=-1)
 
+            # 调整维度并输入RNN
             # GRU计算：将上下文向量与当前词嵌入拼接后输入GRU
             # 输入形状 (1, batch_size, embed_size+num_hiddens)
             # 将x变形为(1,batch_size,embed_size+num_hiddens)
             out, hidden_state = self.rnn(x.permute(1, 0, 2), hidden_state)
-            outputs.append(out)
+            outputs.append(out) # 存储输出
+            # 存储当前时间步的注意力权重
             self._attention_weights.append(self.attention.attention_weights)
 
         # 合并所有时间步的输出并投影到词表空间
