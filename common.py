@@ -1612,7 +1612,42 @@ class DotProductAttention(nn.Module):
         # 矩阵乘法：weights形状(b,nq,nk) × values形状(b,nk,vd) → 输出形状(b,nq,vd)
         return torch.bmm(self.dropout(self.attention_weights), values)
 
-#@save
+# 用于序列到序列学习（seq2seq）的循环神经网络编码器
+class Seq2SeqEncoder(Encoder):
+    """用于序列到序列学习的循环神经网络编码器"""
+    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers,
+                 dropout=0, **kwargs):
+        super(Seq2SeqEncoder, self).__init__(**kwargs)
+        # 嵌入层:获得输入序列中每个词元的特征向量
+        # 将词元索引转换为密集向量（vocab_size → embed_size）
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+
+        # 循环神经网络（GRU）
+        # embed_size: 输入特征维度（嵌入层输出维度）
+        # num_hiddens: 隐状态维度
+        # num_layers: 堆叠的RNN层数
+        # dropout: 层间dropout概率（仅在num_layers>1时生效
+        self.rnn = nn.GRU(embed_size, num_hiddens, num_layers,
+                          dropout=dropout)
+
+    def forward(self, X, *args): # 前向传播逻辑
+        # 输出'X'的形状：(batch_size,num_steps,embed_size)
+        X = self.embedding(X) # 嵌入层处理：(bch_sz, num_steps)→ (bch_sz, num_steps, embed_size)
+
+        # permute(1, 0, 2)交换前两维，即 时间步和批次维度
+        # 因为在循环神经网络模型中，轴一对应于时间步
+        # 即 RNN要求输入形状为 (num_steps, batch_size, embed_size)
+        X = X.permute(1, 0, 2) # 形状变为 (num_steps, batch_size, embed_size)
+
+        # RNN处理
+        # 默认初始隐状态state=None时，自动初始化为全零
+        # 若未提及状态，则默认为0
+        output, state = self.rnn(X)
+
+        # output的形状:(num_steps,batch_size,num_hiddens)
+        # state的形状:(num_layers,batch_size,num_hiddens)
+        return output, state # 所有时间步的隐状态，最后一层的最终隐状态
+
 class AttentionDecoder(Decoder):
     """带有注意力机制解码器的基本接口"""
     def __init__(self, **kwargs):
@@ -1634,7 +1669,7 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         embed_size : 词嵌入维度
         num_hiddens: 隐藏层维度
         num_layers : RNN层数
-        dropout: Dropout比率
+        dropout    : 随机失活率
         """
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
         # 加性注意力模块：查询、键、值的维度均为num_hiddens
@@ -1646,8 +1681,8 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
 
         # 词嵌入层：将词元ID映射为向量
         self.embedding = nn.Embedding(vocab_size, embed_size)
-        # GRU(门控循环单元)循环神经网络（输入=词嵌入+上下文向量，输出隐藏状态）
 
+        # GRU(门控循环单元)循环神经网络（输入=词嵌入+上下文向量，输出隐藏状态）
         self.rnn = nn.GRU(
             embed_size + num_hiddens, # 输入维度为 词嵌入+上下文向量
             num_hiddens,  # 隐藏层维度
