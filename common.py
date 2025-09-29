@@ -1666,28 +1666,31 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
                  dropout=0, **kwargs):
         """ 初始化注意力解码器
         vocab_size : 词汇表大小
-        embed_size : 词嵌入维度
-        num_hiddens: 隐藏层维度
-        num_layers : RNN层数
+        embed_size : 词嵌入维度 (每个数据被表示为的向量维度)
+        num_hiddens: 隐藏层维度 (单个隐藏层的神经元数量)
+        num_layers : RNN层数   (隐藏层的堆叠次数)
         dropout    : 随机失活率
         """
         super(Seq2SeqAttentionDecoder, self).__init__(**kwargs)
-        # 加性注意力模块：查询、键、值的维度均为num_hiddens
+
+        # 加性注意力模块：查询/键/值 的维度均为num_hiddens
+        # 实现相似度计算与权重分配
         self.attention = AdditiveAttention(
             num_hiddens,  # 查询向量维度
             num_hiddens,  # 键向量维度
             num_hiddens,  # 值向量维度
-            dropout) # 实现Bahdanau的加性注意力机制
+            dropout) # 实现Bahdanau的加性注意力机制 (通过联合表征得到注意力权重)
 
-        # 词嵌入层：将词元ID映射为向量
-        self.embedding = nn.Embedding(vocab_size, embed_size)
+        # 词嵌入层：将词元ID映射为向量 (将词元映射为指定维度的向量)
+        self.embedding = nn.Embedding(vocab_size, embed_size) #（词元ID → 向量）
 
-        # GRU(门控循环单元)循环神经网络（输入=词嵌入+上下文向量，输出隐藏状态）
+        # GRU(门控循环单元)循环神经网络层（输入=词嵌入+上下文向量，输出隐藏状态）
+        # 体现注意力对解码的引导
         self.rnn = nn.GRU(
-            embed_size + num_hiddens, # 输入维度为 词嵌入+上下文向量
+            embed_size + num_hiddens, # 输入维度为 词嵌入+上下文向量  即 当前输入和上下文变量
             num_hiddens,  # 隐藏层维度
             num_layers,   # 堆叠层数
-            dropout=dropout)
+            dropout=dropout) #（输入=词嵌入+上下文向量）
 
         # 输出全连接层：将隐藏状态(RNN输出)映射回 词汇表空间(词汇表维度)
         self.dense = nn.Linear(num_hiddens, vocab_size) # （隐藏状态→词表概率分布）
