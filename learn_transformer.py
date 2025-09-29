@@ -254,29 +254,39 @@ def attention_scoring_function():
     # learn_DotProductAttention()
 # attention_scoring_function()
 
+
 # 创建编码器
-encoder = common.Seq2SeqEncoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
-encoder.eval()
+# 将长度可变序列 → 固定形状的编码状态
+encoder = common.Seq2SeqEncoder(vocab_size=10,  # 词表大小 即 输入维度为10
+                                embed_size=8,   # 每个单词被表示为8维的向量
+                                num_hiddens=16, # 隐藏层的维度 即 单个隐藏层的神经元数量
+                                num_layers=2)   # 隐藏层的堆叠次数
+encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
 # 创建带注意力的解码器
+# 固定形状的编码状态 → 将长度可变序列
 decoder = common.Seq2SeqAttentionDecoder(vocab_size=10, embed_size=8, num_hiddens=16, num_layers=2)
-decoder.eval()
+decoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
 # 创建输入数据 (batch_size=4, 序列长度=7)
+# 总共4个批次数据，每批次数据的长度 即 时间步 为7
 X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
 
 # 编码器处理
+# output形状:(num_steps,batch_size,num_hiddens)
+# state形状:(num_layers,batch_size,num_hiddens)
 enc_outputs = encoder(X)  # outputs: (4,7,16), hidden_state: (2,4,16)
+
 # 初始化解码器状态
 state = decoder.init_state(enc_outputs, None) # outputs调整为(7,4,16)
 output, state = decoder(X, state) # 前向传播：解码（假设输入X作为初始输入）
 
 # 检查输出维度和状态结构
-print(f"{output.shape}")    # 预期: torch.Size([4, 7, 10])
-print(f"{len(state)}")      # 3: [enc_outputs, hidden_state, enc_valid_lens]
+print(f"输出形状：{output.shape}")    # 预期: torch.Size([4, 7, 10])
+print(f"隐状态长度：{len(state)}")      # 3: [enc_outputs, hidden_state, enc_valid_lens]
 print(f"编码器输出: {state[0].shape}")       # torch.Size([4, 7, 16])
-print(f"2层隐藏状态：{len(state[1])}")
-print(f"首层隐藏状态: {state[1][0].shape}")  # torch.Size([4, 16])
+print(f"第2层隐藏状态：{len(state[1])}")
+print(f"首层隐藏状态形状: {state[1][0].shape}")  # torch.Size([4, 16])
 
 
 
