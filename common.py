@@ -1697,17 +1697,18 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
 
     def init_state(self, enc_outputs, enc_valid_lens, *args):
         ''' 处理编码器输出，准备解码器初始状态
-        enc_outputs: 编码器的输出（outputs, hidden_state）即(batch_size, num_steps, num_hiddens)
+        enc_outputs: 编码器的输出（所有时间步的隐状态outputs, 最后一层的最终隐状态hidden_state）
+                    即(batch_size, num_steps, num_hiddens)
         enc_valid_lens:编码器有效长度 (batch_size,)
         返回：解码器初始状态，三元组 (编码器输出、隐藏状态、有效长度)
-            outputs：编码器所有时间步的隐藏状态（用于注意力计算）
+            outputs：编码器所有时间步的隐藏状态（用于注意力计算）(已转置，将时间步防御第0维上)
             hidden_state：编码器最终隐藏状态（解码器初始状态）
             enc_valid_lens：源序列的有效长度（掩码处理用）
         '''
-        # outputs的形状为(batch_size，num_steps，num_hiddens).
-        # hidden_state的形状为(num_layers，batch_size，num_hiddens)
+        # outputs     形状(batch_size，num_steps ，num_hiddens)（PyTorch的GRU默认输出格式）
+        # hidden_state形状(num_layers，batch_size，num_hiddens)
         outputs, hidden_state = enc_outputs
-        # 调整outputs维度为(num_steps, batch_size, num_hiddens)
+        # .permute(1,0,2)调整outputs维度为(num_steps, batch_size, num_hiddens)
         return (outputs.permute(1, 0, 2), hidden_state, enc_valid_lens)
 
     def forward(self, X, state):
@@ -1718,17 +1719,21 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
             outputs: 输出序列，形状为(batch_size, num_steps, vocab_size)
             state: 更新后的状态
         '''
-        # 解包状态：编码器输出、隐藏状态、有效长度
+        # 解包状态：编码器输出、编码器最终隐藏状态、有效长度
         # enc_outputs 形状(batch_size,num_steps ,num_hiddens)
         # hidden_state形状(num_layers,batch_size,num_hiddens)
         enc_outputs, hidden_state, enc_valid_lens = state
+
         # 词嵌入(将输入词元ID转换为向量)
         # 并调整维度顺序：(batch_size, num_steps, embed_size)→(num_steps, batch_size, embed_size)
+        # .permute(1, 0, 2)将第0维和第1维的内容交换位置
         X = self.embedding(X).permute(1, 0, 2) # 输出X的形状(num_steps,batch_size,embed_size)
 
         outputs, self._attention_weights = [], [] # 存储输出和注意力权重
         for x in X: # 逐时间步处理(解码)
-            # 查询向量：取解码器最后一个隐藏层状态hidden_state[-1]（最顶层GRU的输出）
+            # 当前隐状态作为查询：首次为编码器中最后一层最终隐状态，后续会动态更新，始终指向最后一层的当前隐状态
+            # hidden_state[-1]取解码器最后一个隐藏层状态（最顶层GRU的输出）
+            # 取出后  .unsqueeze()在这个最后的隐状态的 第1维位置插入一个大小为1的维度
             query = torch.unsqueeze(hidden_state[-1], dim=1) # 形状(batch_size,1,num_hiddens)
 
             # 计算上下文向量（Bahdanau注意力的核心）
@@ -1738,22 +1743,25 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
                 enc_outputs,    # 编码器所有时间步的输出
                 enc_outputs,    # 作为键和值
                 enc_valid_lens  # 有效长度
-            )
+            ) # (通过联合表征得到注意力权重)
 
             # 在特征维度上连结 (拼接 上下文向量和当前词嵌入)
             x = torch.cat((context, torch.unsqueeze(x, dim=1)), dim=-1)
 
-            # 调整维度并输入RNN
+            # 调整维度并输入RNN(输入rnn目的是通过递归计算来动态更新隐状态)
             # 通过GRU处理：将上下文向量与当前词嵌入拼接后输入GRU
             # 输入形状 (1, batch_size, embed_size+num_hiddens)
-            # 将x变形为(1, batch_size, embed_size+num_hiddens)
-            out, hidden_state = self.rnn(x.permute(1, 0, 2), hidden_state)
+            # .permute(1, 0, 2) 将x变形为(1, batch_size, embed_size+num_hiddens)
+            # PyTorch的RNN/GRU层要求输入张量形状必须为(seq_len, batch_size, 每个时间步输入的特征维度input_size)
+            out, hidden_state = self.rnn(x.permute(1, 0, 2), hidden_state) # hidden_state动态更新
             outputs.append(out) # 存储输出
 
             # 存储当前时间步的注意力权重
             self._attention_weights.append(self.attention.attention_weights)
 
         # 合并所有时间步的输出并投影到词表空间
+        # .cat()从列表中的多个(1,batch_size,num_hiddens)，拼接为(seq_len,batch_size,num_hiddens)的三维张量
+        # 即，将解码器各时间步的输出拼接为序列，并最终映射为词元概率分布序列，从而生成完整的输出句子
         # 全连接层变换后，outputs的形状为(num_steps,batch_size,vocab_size)
         outputs = self.dense(torch.cat(outputs, dim=0))
         return outputs.permute(1, 0, 2), [enc_outputs, hidden_state,

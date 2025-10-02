@@ -273,21 +273,105 @@ decoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
 X = torch.zeros((4, 7), dtype=torch.long)  # (batch_size,num_steps)
 
 # 编码器处理
-# output形状:(num_steps,batch_size,num_hiddens)
+# 这里编码器出来output形状:(batch_size,num_steps,num_hiddens)（PyTorch的GRU默认输出格式）
 # state形状:(num_layers,batch_size,num_hiddens)
 enc_outputs = encoder(X)  # outputs: (4,7,16), hidden_state: (2,4,16)
 
 # 初始化解码器状态
+# 将编码器的输出转换成 解码器所需的状态
 state = decoder.init_state(enc_outputs, None) # outputs调整为(7,4,16)
 output, state = decoder(X, state) # 前向传播：解码（假设输入X作为初始输入）
 
 # 检查输出维度和状态结构
-print(f"输出形状：{output.shape}")    # 预期: torch.Size([4, 7, 10])
-print(f"隐状态长度：{len(state)}")      # 3: [enc_outputs, hidden_state, enc_valid_lens]
+print(f"投影到词表空间的所有时间步输出形状：{output.shape}") # 预期: torch.Size([4, 7, 10])
+print(f"更新后的解码器状态三元组长度：{len(state)}") # 3: [enc_outputs, hidden_state, enc_valid_lens]
 print(f"编码器输出: {state[0].shape}")       # torch.Size([4, 7, 16])
-print(f"第2层隐藏状态：{len(state[1])}")
+print(f"解码器隐藏状态的层数：{len(state[1])}")
 print(f"首层隐藏状态形状: {state[1][0].shape}")  # torch.Size([4, 16])
 
+
+# 下载器与数据集配置
+# 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
+downloader = common.C_Downloader()
+DATA_HUB = downloader.DATA_HUB  # 字典，存储数据集名称与下载信息
+DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
+
+# 注册数据集信息到DATA_HUB全局字典
+# 格式：(数据集URL, MD5校验值)
+DATA_HUB['fra-eng'] = (DATA_URL + 'fra-eng.zip', # 完整下载URL（DATA_URL是d2l定义的基准URL）
+                           '94646ad1522d915e7b0f9296181140edcf86a4f5') # 文件MD5，用于校验下载完整性
+
+# 词嵌入维度，隐藏层维度，rnn层数，失活率
+embed_size, num_hiddens, num_layers, dropout = 32, 32, 2, 0.1
+batch_size, num_steps = 64, 10 # 批量大小，序列最大长度
+lr, num_epochs, device = 0.005, 250, common.try_gpu() # 学习率，训练轮数，设备选择
+
+""" 数据预处理
+train_iter: 训练数据迭代器（自动进行分词、构建词汇表、填充和批处理）
+src_vocab/tgt_vocab: 源语言和目标语言的词汇表对象（包含词元到索引的映射）
+"""
+train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
+
+# 模型构建
+"""
+编码器结构：
+- 嵌入层：将词元索引映射为32维向量
+- GRU层：2层堆叠，每层32个隐藏单元，带0.1的dropout
+- 输出：所有时间步的隐藏状态（用于注意力计算）和最终隐藏状态（初始化解码器）
+"""
+encoder = common.Seq2SeqEncoder(
+    len(src_vocab), embed_size, num_hiddens, num_layers, dropout)
+"""
+解码器核心创新点：
+- 注意力机制：加性注意力（Bahdanau风格），在每个时间步动态生成上下文向量
+- 输入拼接：词嵌入（32维）与上下文向量（32维）拼接为64维输入
+- GRU层：与编码器维度对齐，保持2层堆叠结构
+"""
+decoder = common.Seq2SeqAttentionDecoder(
+    len(tgt_vocab), embed_size, num_hiddens, num_layers, dropout)
+net = common.EncoderDecoder(encoder, decoder)  # 封装编码器-解码器结构
+
+""" 模型训练
+训练过程特点：
+- 损失函数：交叉熵损失（忽略填充符）
+- 优化器：Adam
+- 正则化：梯度裁剪（防梯度爆炸）+ Dropout
+- 教师强制（Teacher Forcing）：训练时使用真实标签作为输入
+"""
+common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
+
+# 推理与评估
+engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
+fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
+for eng, fra in zip(engs, fras):
+    # 带注意力可视化的预测
+    translation, dec_attention_weight_seq = common.predict_seq2seq(
+        net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+    # BLEU-2评估（双词组匹配精度）
+    print(f'{eng} => {translation}, ',
+          f'bleu {common.bleu(translation, fra, k=2):.3f}')
+
+# 注意力权重可视化处理
+"""
+数据处理逻辑：
+1. 提取每个时间步的注意力权重矩阵（batch_size=1, num_heads=1, query_pos, key_pos）
+2. 沿时间维度拼接所有权重矩阵
+3. 调整形状为(1, 1, num_queries, num_keys)
+"""
+attention_weights = torch.cat([step[0][0][0] for step in dec_attention_weight_seq], 0).reshape((
+    1, 1, -1, num_steps))
+
+""" 绘制注意力热图
+可视化说明：
+- 横轴：源语言句子位置（编码器时间步）
+- 纵轴：目标语言生成位置（解码器时间步）
+- 颜色深浅：注意力权重大小（红色越深表示关注度越高）
+- 典型对齐模式：对角线（单调对齐）、斜线（跨词对齐）
+"""
+# 加上一个包含序列结束词元
+common.show_heatmaps(
+    attention_weights[:, :, :, :len(engs[-1].split()) + 1].cpu(),
+    xlabel='Key positions', ylabel='Query positions')
 
 
 
