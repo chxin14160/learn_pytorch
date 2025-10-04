@@ -1774,6 +1774,92 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         '''
         return self._attention_weights
 
+class MultiHeadAttention(nn.Module):
+    """多头注意力"""
+    def __init__(self, key_size, query_size, value_size, num_hiddens,
+                 num_heads, dropout, bias=False, **kwargs):
+        super(MultiHeadAttention, self).__init__(**kwargs)
+        self.num_heads = num_heads # 并行注意力头的数量
+        self.attention = DotProductAttention(dropout) # 放缩点集注意力模块
+
+        # 定义线性投影层（将输入映射到不同子空间）
+        self.W_q = nn.Linear(query_size, num_hiddens, bias=bias)  # Q投影
+        self.W_k = nn.Linear(key_size, num_hiddens, bias=bias)    # K投影
+        self.W_v = nn.Linear(value_size, num_hiddens, bias=bias)  # V投影
+        self.W_o = nn.Linear(num_hiddens, num_hiddens, bias=bias) # 输出拼接后的线性变换
+
+    def forward(self, queries, keys, values, valid_lens):
+        """
+        queries   : 查询向量 (batch_size, 查询数, query_size)
+        keys      : 键向量 (batch_size, 键值对数, key_size)
+        values    : 值向量 (batch_size, 键值对数, value_size)
+        valid_lens: 有效长度 (batch_size,) 或 (batch_size, 查询的个数)
+        即 q，k，v形状: (batch_size，查询或者“键－值”对的个数，num_hiddens)
+        """
+        # 1. 线性投影：将Q/K/V从原始维度投影到 num_hiddens维度
+        # 投影后形状: (batch_size, 查询数/键值对数, num_hiddens)
+        queries = self.W_q(queries)
+        keys = self.W_k(keys)
+        values = self.W_v(values)
+
+        # 2. 形状变换（为多头并行计算准备）：用transpose_qkv将张量重塑为多头并行格式
+        # 经过变换后，输出的 q，k，v 的形状:
+        # (batch_size*num_heads，查询或者“键－值”对的个数，num_hiddens/num_heads)
+        queries = transpose_qkv(queries, self.num_heads)
+        keys    = transpose_qkv(keys   , self.num_heads)
+        values  = transpose_qkv(values , self.num_heads)
+
+        # 3. 处理有效长度（扩展到每个头）：若有valid_lens，将其复制到每个注意力头
+        if valid_lens is not None:
+            # 作用：将有效长度复制num_heads次并保持维度 (batch_size*num_heads, ...)
+            # 在轴0，将第一项（标量或者矢量）复制num_heads次，
+            # 然后如此复制第二项，然后诸如此类
+            valid_lens = torch.repeat_interleave(
+                valid_lens, repeats=self.num_heads, dim=0)
+
+        # 4. 并行计算多头注意力：每个头独立计算缩放点积注意力
+        # 输出形状:(batch_size*num_heads，查询个数，num_hiddens/num_heads)
+        output = self.attention(queries, keys, values, valid_lens)
+
+        # 5. 逆转形状变换（恢复原始维度）：用transpose_output恢复原始形状
+        # 输出拼接后形状: (batch_size, 查询数, num_hiddens)
+        # output_concat的形状:(batch_size，查询的个数，num_hiddens)
+        output_concat = transpose_output(output, self.num_heads)
+
+        # 6. 最终线性变换：线性层W_o整合多头信息
+        return self.W_o(output_concat)
+
+# 辅助函数：为多头并行计算变换形状
+def transpose_qkv(X, num_heads):
+    """为了 多注意力头的并行计算 而变换形状
+    即 将张量重塑为多头并行计算格式
+    示例：
+    输入 X：(2, 4, 100)（batch_size=2, seq_len=4, num_hiddens=100）
+    输出：(2 * 5, 4, 20)（num_heads=5, depth_per_head=20）
+    """
+    # 增加num_heads维度
+    # 输入X的形状:(batch_size，查询或者“键－值”对的个数，num_hiddens)
+    # 输出X的形状:(batch_size，查询或者“键－值”对的个数，num_heads，num_hiddens/num_heads)
+    X = X.reshape(X.shape[0], X.shape[1], num_heads, -1) # 增加num_heads维度
+
+    # 输出X的形状:(batch_size，num_heads，查询或者“键－值”对的个数, num_hiddens/num_heads)
+    X = X.permute(0, 2, 1, 3) # 每批次数据皆按头数分批，几个头就几批
+
+    # 最终合并batch和num_heads维度: (batch_size*num_heads, 序列长度, 每个头的维度)
+    # 最终输出的形状:(batch_size*num_heads,查询或者“键－值”对的个数, num_hiddens/num_heads)
+    return X.reshape(-1, X.shape[2], X.shape[3])
+
+
+# 辅助函数：逆转transpose_qkv的形状变换
+def transpose_output(X, num_heads):
+    """逆转transpose_qkv函数的操作
+    即 将多头输出恢复为原始维度格式 """
+    # 输入形状: (batch_size*num_heads, 序列长度, 每个头的维度)
+    # 恢复维度: (batch_size, num_heads, 序列长度, 每个头的维度)
+    X = X.reshape(-1, num_heads, X.shape[1], X.shape[2])
+    X = X.permute(0, 2, 1, 3) # (batch_size, seq_len, num_heads, 每个头的维度depth_per_head)
+    # 合并最后两个维度: (batch_size, 序列长度, num_hiddens)
+    return X.reshape(X.shape[0], X.shape[1], -1)
 
 
 
