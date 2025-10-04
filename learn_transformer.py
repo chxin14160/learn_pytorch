@@ -357,9 +357,11 @@ def learn_Bahdanau_attention():
     # 注意力权重可视化处理
     """
     数据处理逻辑：
+    遍历dec_attention_weight_seq（解码器各时间步的注意力权重序列）
+    step[0][0][0]即首个batch、首个头、首个查询位置对应的所有键的权重（形状为(key_len,)）
     1. 提取每个时间步的注意力权重矩阵（batch_size=1, num_heads=1, query_pos, key_pos）
-    2. 沿时间维度拼接所有权重矩阵
-    3. 调整形状为(1, 1, num_queries, num_keys)
+    2. .cat(, 0)沿时间维度拼接所有权重矩阵
+    3. .reshape()调整形状为(1, 1, num_queries, num_keys)
     """
     attention_weights = torch.cat([step[0][0][0] for step in dec_attention_weight_seq], 0).reshape((
         1, 1, -1, num_steps))
@@ -376,6 +378,34 @@ def learn_Bahdanau_attention():
         attention_weights[:, :, :, :len(engs[-1].split()) + 1].cpu(),
         xlabel='Key positions', ylabel='Query positions')
 # learn_Bahdanau_attention()
+
+
+def learn_MultiHeadAttention():
+    ''' 学习 多头注意力机制 '''
+    num_hiddens, num_heads = 100, 5 # 隐藏层维度，注意力头数
+    attention = common.MultiHeadAttention(num_hiddens, num_hiddens, num_hiddens,
+                                   num_hiddens, num_heads, 0.5)
+    attention.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    print(f"[多头注意力]模型结构概览：\n{attention}")
+
+    batch_size, num_queries = 2, 4 # 批量大小，查询数量
+    # 键值对数，序列有效长度
+    # (因为批量大小为2，所以第一个批量的序列长度中有效长度为3，第二个批量的序列长度中有效长度为2)
+    # 序列长度：对于X来说是查询数4，对于Y来说是键值对数6
+    num_kvpairs, valid_lens = 6, torch.tensor([3, 2]) # 第二个查询只关注前2个键值对
+
+    # 输入数据：全1张量用于测试
+    # X的形状是(batch_size, num_queries, num_hiddens)
+    # 即 每个样本有num_queries个查询向量，每个向量维度是num_hiddens
+    # Y的形状是(batch_size, num_kvpairs, num_hiddens)
+    # 即 每个样本有num_kvpairs个键值对，每个键和值的维度也是num_hiddens
+    X = torch.ones((batch_size, num_queries, num_hiddens)) # 查询向量
+    Y = torch.ones((batch_size, num_kvpairs, num_hiddens)) # 键值对
+
+    # 前向传播
+    output = attention(X, Y, Y, valid_lens)
+    print(f"输出形状：{output.shape}")
+# learn_MultiHeadAttention()
 
 
 
