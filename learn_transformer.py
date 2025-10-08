@@ -408,6 +408,77 @@ def learn_MultiHeadAttention():
 # learn_MultiHeadAttention()
 
 
+def Self_attention_and_position_encoding():
+    ''' 自注意力和位置编码 '''
+    # 自注意力（qkv皆为同一序列）
+    num_hiddens, num_heads = 100, 5 # 隐藏层维度，注意力头数
+    attention = common.MultiHeadAttention(num_hiddens, num_hiddens, num_hiddens,
+                                       num_hiddens, num_heads, 0.5)
+    attention.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    print(f"模型结构：\n{attention}")
+
+    # 批量大小，查询数量，序列有效长度(对于X来说，序列长度是键值对数)
+    batch_size, num_queries, valid_lens = 2, 4, torch.tensor([3, 2])
+    # 输入数据：全1张量用于测试
+    # 张量形状（批量大小，时间步的数目或词元序列的长度，d）
+    # 查询数量，等同于序列长度（时间步数/词元数），表示每个序列包含的词元数量（此处为4）
+    # d：隐藏层维度（即特征向量长度）
+    X = torch.ones((batch_size, num_queries, num_hiddens))
+    output = attention(X, X, X, valid_lens)
+    print(f"输出形状：{output.shape}")
+
+
+    encoding_dim, num_steps = 32, 60 # 嵌入维度，序列步长
+    pos_encoding = common.PositionalEncoding(encoding_dim, 0) # 创建位置编码器
+    pos_encoding.eval() # 设置为评估模式（关闭dropout等训练专用层）
+
+    # 生成全零输入（模拟嵌入向量）
+    # ①torch.zeros((1, num_steps, encoding_dim)) 和
+    # ②torch.zeros(1, num_steps, encoding_dim) 完全等效，无功能差异
+    # ①是 元组形式   ，符合函数参数传递的通用规范
+    # ②是 直接参数形式，直接传递多个整数参数，PyTorch内部会自动将其转换为形状元组
+    X = pos_encoding(torch.zeros((1, num_steps, encoding_dim)))
+    # 外部再次提取操作：服务于后续处理需求
+    P = pos_encoding.P[:, :X.shape[1], :] # 提取实际使用的位置编码
+
+    ''' 可视化特定维度的位置编码变化
+    P[0, :, 6:10]取第一个批次(batch维度索引0)，该批次中的所有词元(序列维度全部保留，从0到seq_len-1)
+          取每个词元的特征维度中索引6到9的4个维度（对应隐藏层维度索引6,7,8,9）
+          
+    加转置的原因：调整数据的维度，使能正确将每个特征维度作为单独的曲线绘制，而非将每个位置作为曲线
+        若原始数据是：
+            位置0: [v6, v7, v8, v9]
+            位置1: [v6, v7, v8, v9]
+        转置后变成：
+            特征6: [位置0的值, 位置1的值, ...]
+            特征7: [位置0的值, 位置1的值, ...]
+    这样，每条曲线就是某个特征维度随位置的变化，符合常见的可视化需求
+    
+    legend=["Col %d" % d for d in torch.arange(6, 10)] 等价于
+    legend=[f"Col {d}" for d in range(6, 10)]
+    '''
+    common.plot(torch.arange(num_steps),    # x轴：0~59的位置索引
+                P[0, :, 6:10].T,            # 选取维度6~9的4个特征
+                xlabel='Row (position)',    # x轴标签
+                figsize=(6, 2.5),           # 图像尺寸
+                legend=["Col %d" % d for d in torch.arange(6, 10)]) # 图例
+
+    # 打印0到7的二进制表示形式，演示观点：随着编码维度增加，比特值的交替频率正在单调降低
+    for i in range(8):
+        print(f'{i}的二进制是：{i:>03b}') # 格式化输出二进制（3位宽度右对齐）
+
+    # 热图可视化：展示位置编码矩阵的全局模式
+    # 取出第一个批次(batch维度索引0)的所有词元的和所有特征维度，在第0维的位置插入两个长度为1的维度
+    # 插入的两个长度为1的维度是指子图行数和列数，
+    # 多个子图指的是将多个不同的热图子图显示在同一个画框（即一个图形窗口）内，而这里只有一个子图热图
+    P = P[0, :, :].unsqueeze(0).unsqueeze(0) # 调整维度为(1,1,seq_len,dim)
+    common.show_heatmaps(P,
+                         xlabel='Column (encoding dimension)', # x轴：编码维度
+                         ylabel='Row (position)',              # y轴：序列位置
+                         figsize=(3.5, 4),
+                         cmap='Blues') # 蓝色系配色
+# Self_attention_and_position_encoding()
+
 
 
 

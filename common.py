@@ -1862,6 +1862,63 @@ def transpose_output(X, num_heads):
     return X.reshape(X.shape[0], X.shape[1], -1)
 
 
+class PositionalEncoding(nn.Module):
+    """位置编码模块：为序列注入绝对位置信息
+    构造函数中 实现了位置编码的预计算
+    在训练/推理时只需根据实际序列长度动态截取，既节省内存又提高效率
+    max_len     ：词元在序列中的位置 总数
+    num_hiddens ：位置编码的不同维度 总数即总维度
+    实例化类对象传入时，num_hiddens作为嵌入维度
+    """
+    # num_hiddens 嵌入维度
+    def __init__(self, num_hiddens, dropout, max_len=1000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(dropout)
+        # 创建一个足够长的P（位置嵌入矩阵）
+        # 预计算位置编码矩阵（1, max_len, num_hiddens）
+        self.P = torch.zeros((1, max_len, num_hiddens)) # 初始化三维张量
+
+        # 生成位置编码的频率分量（基于论文公式）
+        # 公式：
+        # PE(pos,2j)   = sin(pos/(10000^{2j/d}))
+        # PE(pos,2j+1) = cos(...)
+        # positions为列向量，表示行i的 位置索引 [0,1,...,max_len-1]
+        # dims：分母中10000的幂，
+        # arange(0,n,2)从0到n-1，步长为2，生成【偶数】索引序列[0,2,4,...,n-1]，对应公式中的2j
+        # /num_hiddens 归一化到[0,1)区间（例如num_hiddens=512时，dims=[0/512, 2/512, …, 510/512]）
+        positions = torch.arange(max_len).float().reshape(-1, 1) # 形状(max_len,1)
+        dims = torch.arange(0, num_hiddens, 2).float() / num_hiddens  # 维度索引归一化,形状(num_hiddens/2,)
+        freqs = torch.pow(10000, dims)  # 10000^(2j/d) 计算频率分母项，形状同dims
+
+        # sin/cos的输入值（pos / (10000^{2j/d})）
+        # 广播除法：将positions的每一行除以freqs的所有元素
+        # 出来X形状(词元在序列中的位置总数max_len，位置编码的总维度num_hiddens/2)，/2是因为前面步进为2
+        # 例如 pos=2, j=0时：X[2][0] = 2 / 10000⁰ = 2
+        X = positions / freqs # 即（行i/(10000^{2j/d})），j是列
+
+        # 填充位置编码矩阵：偶数维度用sin，奇数维度用cos
+        # 0::2 从0开始步进为2的切片，即 偶数列 0，2，4，8，…
+        # 1::2 从1开始步进为2的切片，即 奇数列 1，3，5，7，…
+        self.P[:, :, 0::2] = torch.sin(X)  # 所有偶数列填充sin值
+        self.P[:, :, 1::2] = torch.cos(X)  # 所有奇数列填充cos值
+
+    # 构造函数里 X=positions/freqs 的 X 在用于生成self.P后即被销毁
+    # 前向传播里 X.shape[1] 用的 X 是来自于函数头的参数X，即 实际输入的数据
+    def forward(self, X):
+        """前向传播：将位置编码加到输入上
+        前向传播中的截取操作 pos_embed=self.P[:, :seq_len,:]：动态适配输入序列长度
+        核心目的：避免固定max_len导致的内存浪费，实现按需截取。
+        """
+        # 根据实际序列长度截取位置编码（避免固定max_len导致内存浪费）
+        seq_len = X.shape[1] # X.shape[1] 获取输入序列的实际长度
+        pos_embed = self.P[:, :seq_len, :].to(X.device)  # 按实际序列长度截取位置编码，移动设备兼容性处理
+        X = X + pos_embed # 绝对位置编码：直接相加，将位置编码加到输入上（广播机制自动对齐batch维度）
+        return self.dropout(X) # 应用随机失活
+
+
+
+
+
 
 
 
