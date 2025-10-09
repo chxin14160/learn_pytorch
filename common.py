@@ -1915,7 +1915,65 @@ class PositionalEncoding(nn.Module):
         X = X + pos_embed # 绝对位置编码：直接相加，将位置编码加到输入上（广播机制自动对齐batch维度）
         return self.dropout(X) # 应用随机失活
 
+# 定义位置前馈网络类（Position-wise Feed-Forward Network）
+class PositionWiseFFN(nn.Module):
+    """基于位置的前馈网络
+    特点：对输入序列中每个位置的向量独立进行非线性变换，不涉及位置间交互
+    结构：两层全连接层 + ReLU激活函数
+    """
+    def __init__(self, ffn_num_input, ffn_num_hiddens, ffn_num_outputs,
+                 **kwargs):
+        """
+        参数说明：
+        ffn_num_input  : 输入特征维度（如词向量维度）
+        ffn_num_hiddens: 中间层隐藏单元数（通常远大于输入维度）
+        ffn_num_outputs: 输出特征维度
+        """
+        super(PositionWiseFFN, self).__init__(**kwargs)
+        # 第一层全连接：维度扩展（输入维度 → 隐藏维度）
+        self.dense1 = nn.Linear(ffn_num_input, ffn_num_hiddens)
+        # 非线性激活函数（引入非线性能力）
+        self.relu = nn.ReLU()
+        # 第二层全连接：维度压缩（隐藏维度 → 输出维度）
+        self.dense2 = nn.Linear(ffn_num_hiddens, ffn_num_outputs)
 
+    def forward(self, X):
+        """ 前向传播逻辑：
+        1. 对输入张量X的每个位置独立应用相同变换
+        2. 维度变化： (batch_size, seq_length, ffn_num_input)
+                  → (batch_size, seq_length, ffn_num_hiddens)
+                  → (batch_size, seq_length, ffn_num_outputs)
+        """
+        # 执行：线性变换 → 激活函数 → 线性变换
+        return self.dense2(self.relu(self.dense1(X)))
+
+# 残差连接 + 层归一化模块
+class AddNorm(nn.Module):
+    """残差连接后进行层规范化
+    实现残差连接（Residual Connection）后进行层归一化（Layer Normalization）
+    结构：Sublayer Output + Dropout → LayerNorm
+    作用：缓解梯度消失，加速训练，增强模型稳定性
+    """
+    def __init__(self, normalized_shape, dropout, **kwargs):
+        """
+        参数说明：
+        normalized_shape: 输入张量的最后维度（如[3,4]表示最后维度为4）
+        dropout: 随机失活概率
+        """
+        super(AddNorm, self).__init__(**kwargs)
+        self.dropout = nn.Dropout(dropout) # 随机失活层（训练时随机置零部分神经元，防止过拟合）
+        self.ln = nn.LayerNorm(normalized_shape) # 层归一化层（对每个样本的所有特征进行归一化）
+
+    def forward(self, X, Y):
+        """
+        前向传播逻辑：
+        1. 执行残差连接：X + sublayer
+        2. 随机失活：防止过拟合
+        3. 层归一化：稳定数值分布，加速收敛
+        """
+        # 残差连接：输入X与子层输出sublayer相加
+        # 注意：X和sublayer必须形状相同（如[batch_size, seq_length, dim]）
+        return self.ln(self.dropout(Y) + X)
 
 
 
