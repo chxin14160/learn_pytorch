@@ -480,41 +480,66 @@ def Self_attention_and_position_encoding():
 # Self_attention_and_position_encoding()
 
 
-# 创建FFN实例：输入维度4，隐藏层8，输出维度8（实际常用隐藏层维度远大于输入/输出）
-# 注：此处隐藏层维度设为4仅为示例，实际常设为2048等大值
-ffn = common.PositionWiseFFN(4, 4, 8)
-ffn.eval() # 设置为评估模式（关闭dropout等训练专用层）
+def test_PositionWise_FFN():
+    ''' 测试：基于位置的前馈网络
+    (对每个输入的x都独立应用相同的线性+激活+线性) '''
+    # 创建FFN实例：输入维度4，隐藏层8，输出维度8（实际常用隐藏层维度远大于输入/输出）
+    # 注：此处隐藏层维度设为4仅为示例，实际常设为2048等大值
+    ffn = common.PositionWiseFFN(4, 4, 8)
+    ffn.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
-# 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
-input_tensor = torch.ones((2, 3, 4))  # 全1张量用于测试
-output = ffn(input_tensor)      # 执行前向传播
-first_sample_output = output[0] # 获取第一个样本的所有位置输出（形状：3个位置 × 8维输出）
-print("输入形状:", input_tensor.shape)  # torch.Size([2, 3, 4])
-print("输出形状:", output.shape)        # torch.Size([2, 3, 8])
-print("首样本输出:\n", first_sample_output)
+    # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
+    input_tensor = torch.ones((2, 3, 4))  # 全1张量用于测试
+    output = ffn(input_tensor)      # 执行前向传播
+    first_sample_output = output[0] # 获取第一个样本的所有位置输出（形状：3个位置 × 8维输出）
+    print("输入形状:", input_tensor.shape)  # torch.Size([2, 3, 4])
+    print("输出形状:", output.shape)        # torch.Size([2, 3, 8])
+    print("首样本输出:\n", first_sample_output)
+# test_PositionWise_FFN()
 
-ln = nn.LayerNorm(2)    # 创建【层】归一化对象（对每个样本的所有特征归一化）
-bn = nn.BatchNorm1d(2)  # 创建【批】归一化对象（对每个特征跨样本归一化）
+def test_Add_and_Norm():
+    ''' 测试：残差连接和层归一化 模块
+    残差输入x经过随机失活后，与子层输出y相加，
+    相加后再经过层归一化(样本内所有特征经过归一化，即每个学生的所有科目成绩归一化)'''
+    ln = nn.LayerNorm(2)    # 创建【层】归一化对象（对每个样本的所有特征归一化）
+    bn = nn.BatchNorm1d(2)  # 创建【批】归一化对象（对每个特征跨样本归一化）
 
-# 创建输入数据：2个样本，每个样本2个特征
-X = torch.tensor([[1, 2], [2, 3]], dtype=torch.float32)
-print("在训练模式下计算X的均值和方差:\n")
-# 层归一化计算（每个样本独立归一化）
-print('layer norm:', ln(X))  # 每个样本的均值和方差独立计算
-# 批归一化计算（跨样本归一化）
-print('batch norm:', bn(X))  # 所有样本的同一特征共享均值和方差
+    # 创建输入数据：2个样本，每个样本2个特征
+    X = torch.tensor([[1, 2], [2, 3]], dtype=torch.float32)
+    print("在训练模式下计算X的均值和方差:\n")
+    # 层归一化计算（每个样本独立归一化）
+    print('layer norm:', ln(X))  # 每个样本的均值和方差独立计算
+    # 批归一化计算（跨样本归一化）
+    print('batch norm:', bn(X))  # 所有样本的同一特征共享均值和方差
 
-# AddNorm模块使用示例
-# 创建AddNorm实例：输入张量最后维度为4，Dropout概率0.5
-add_norm = common.AddNorm([3, 4], 0.5)
-add_norm.eval() # 切换至评估模式（关闭Dropout，BatchNorm使用移动平均）
+    # AddNorm模块使用示例
+    # 创建AddNorm实例：输入张量最后维度为4，Dropout概率0.5
+    add_norm = common.AddNorm([3, 4], 0.5)
+    add_norm.eval() # 切换至评估模式（关闭Dropout，BatchNorm使用移动平均）
 
-# 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
-input1 = torch.ones((2, 3, 4))
-input2 = torch.ones((2, 3, 4))  # 残差连接输入
-output = add_norm(input1, input2) #前向传播
-print("输出形状验证（应与输入相同）\n"
-      "输出形状:", output.shape)  # torch.Size([2, 3, 4])
+    # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
+    input1 = torch.ones((2, 3, 4))
+    input2 = torch.ones((2, 3, 4))  # 残差连接输入
+    output = add_norm(input1, input2) #前向传播
+    print("输出形状验证（应与输入相同）\n"
+          "输出形状:", output.shape)  # torch.Size([2, 3, 4])
+# test_Add_and_Norm()
+
+X = torch.ones((2, 100, 24))
+valid_lens = torch.tensor([3, 2])
+encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
+encoder_blk.eval()
+encoder_blk(X, valid_lens).shape
+
+
+encoder = common.TransformerEncoder(
+    200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
+encoder.eval()
+encoder(torch.ones((2, 100), dtype=torch.long), valid_lens).shape
+
+
+
+
 
 
 
