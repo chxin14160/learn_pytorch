@@ -526,23 +526,42 @@ def test_Add_and_Norm():
 # test_Add_and_Norm()
 
 
-# 测试代码（验证维度变换）
-X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
-valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+
+def test_transformer_encoder():
+    ''' 测试：transformer的编码器块及编码器 '''
+    # 测试代码（验证维度变换）
+    X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+    valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+
+    # 创建编码器块
+    encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
+    encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    output = encoder_blk(X, valid_lens)
+    print(f"编码器块输出形状：{output.shape}")
+
+    # 创建完整编码器
+    encoder = common.TransformerEncoder(
+        200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
+    encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    output = encoder(torch.ones((2, 100), dtype=torch.long), valid_lens)
+    print(f"编码器输出形状：{output.shape}")
+# test_transformer_encoder()
+
 
 # 创建编码器块
 encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
 encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
-output = encoder_blk(X, valid_lens)
-print(f"编码器块输出形状：{output.shape}")
 
-# 创建完整编码器
-encoder = common.TransformerEncoder(
-    200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
-encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
-output = encoder(torch.ones((2, 100), dtype=torch.long), valid_lens)
-print(f"编码器输出形状：{output.shape}")
+# 创建解码器块
+decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
+decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
+X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+
+state = [encoder_blk(X, valid_lens), valid_lens, [None]] # 构建解码器状态
+output = decoder_blk(X, state) # 前向传播
+print(f"解码器块输出，第一个批次的形状：{output[0].shape}") # torch.Size([2, 100, 24])
 
 
 

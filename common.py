@@ -2042,7 +2042,7 @@ class TransformerEncoder(Encoder):
                  ffn_num_input, ffn_num_hiddens,     # 前馈网络的 输入维度 和 中间层维度
                  num_heads,                          # 多头注意力头数
                  num_layers,                         # 编码器块堆叠层数
-                 dropout, use_bias=False, **kwargs): # 随机失活绿，是否使用偏置项
+                 dropout, use_bias=False, **kwargs): # 随机失活率，是否使用偏置项
         super(TransformerEncoder, self).__init__(**kwargs)
 
         self.num_hiddens = num_hiddens
@@ -2087,6 +2087,148 @@ class TransformerEncoder(Encoder):
             self.attention_weights[
                 i] = blk.attention.attention.attention_weights
         return X
+
+class DecoderBlock(nn.Module):
+    """解码器中第i个块"""
+    def __init__(self, key_size, query_size, value_size, # qkv向量维度
+                 num_hiddens,           # 隐藏层维度
+                 norm_shape,            # 层归一化形状
+                 ffn_num_input, ffn_num_hiddens,  # 前馈网络的 输入维度 和 中间层维度
+                 num_heads,             # 多头注意力头数
+                 dropout, i, **kwargs): # 随机失活率，解码器层索引(用于缓存管理)
+        super(DecoderBlock, self).__init__(**kwargs)
+        self.i = i # 记录当前解码器层索引
+
+        # 自注意力层（带掩码机制防止看到未来信息）
+        self.attention1 = MultiHeadAttention(
+            key_size, query_size, value_size, num_hiddens, num_heads, dropout)
+        self.addnorm1 = AddNorm(norm_shape, dropout)
+
+        # 编码器-解码器注意力层（使用编码器输出作为K/V）
+        self.attention2 = MultiHeadAttention(
+            key_size, query_size, value_size, num_hiddens, num_heads, dropout)
+        self.addnorm2 = AddNorm(norm_shape, dropout)
+
+        # 位置前馈网络
+        self.ffn = PositionWiseFFN(ffn_num_input, ffn_num_hiddens,
+                                   num_hiddens)
+        self.addnorm3 = AddNorm(norm_shape, dropout)
+
+    def forward(self, X, state):
+        """前向传播
+        X: 输入张量 [batch_size, seq_length, num_hiddens]
+        state: 包含3个元素的列表
+            [0] enc_outputs: 编码器输出
+            [1] enc_valid_lens: 编码器有效长度
+            [2] cached_states: 各层缓存状态列表
+        返回：处理后的张量及更新后的state
+        """
+        # 提取状态信息
+        enc_outputs, enc_valid_lens = state[0], state[1]
+
+        # 训练阶段，输出序列的所有词元都在同一时间处理，
+        # 因此state[2][self.i]初始化为None。
+        # 预测阶段，输出序列是通过词元一个接着一个解码的，
+        # 因此state[2][self.i]包含着直到当前时间步第i个块解码的输出表示
+
+        # 缓存管理：训练时每次重新计算，预测时使用缓存
+        if state[2][self.i] is None:  # 首次计算
+            key_values = X
+        else: # 预测阶段使用缓存
+            key_values = torch.cat((state[2][self.i], X), axis=1)
+        state[2][self.i] = key_values # 更新缓存
+
+        # 训练阶段：生成有效长度掩码（递增序列）
+        if self.training:
+            batch_size, num_steps, _ = X.shape
+            # dec_valid_lens的开头:(batch_size,num_steps),
+            # 其中每一行是[1,2,...,num_steps]
+            dec_valid_lens = torch.arange(
+                1, num_steps + 1, device=X.device).repeat(batch_size, 1)
+        else:
+            dec_valid_lens = None # 预测阶段不需要
+
+        # 自注意力（带掩码）
+        # 公式：Attention(Q=X, K=key_values, V=key_values)
+        X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
+        Y = self.addnorm1(X, X2) # 残差连接+层归一化
+
+        # 编码器－解码器注意力
+        # 公式：Attention(Q=Y, K=enc_outputs, V=enc_outputs)
+        # enc_outputs的开头:(batch_size,num_steps,num_hiddens)
+        Y2 = self.attention2(Y, enc_outputs, enc_outputs, enc_valid_lens)
+        Z = self.addnorm2(Y, Y2) # 残差连接+层归一化
+
+        # 前馈网络处理
+        return self.addnorm3(Z, self.ffn(Z)), state
+
+class TransformerDecoder(AttentionDecoder):
+    """Transformer解码器：包含嵌入层+位置编码+堆叠的解码器块+输出层"""
+    def __init__(self, vocab_size,                   # 词汇表大小
+                 key_size, query_size, value_size,   # qkv向量维度
+                 num_hiddens,                        # 隐藏层维度
+                 norm_shape,                         # 层归一化形状
+                 ffn_num_input, ffn_num_hiddens,     # 前馈网络的 输入维度 和 中间层维度
+                 num_heads,                          # 多头注意力头数
+                 num_layers,                         # 解码器块堆叠层数
+                 dropout, **kwargs):
+        super(TransformerDecoder, self).__init__(**kwargs)
+        self.num_hiddens = num_hiddens
+        self.num_layers = num_layers
+
+        # 词嵌入层
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+
+        # 位置编码层
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+
+        # 堆叠的解码器块
+        self.blks = nn.Sequential()
+        for i in range(num_layers):
+            self.blks.add_module("block"+str(i),
+                DecoderBlock(key_size, query_size, value_size, num_hiddens,
+                             norm_shape, ffn_num_input, ffn_num_hiddens,
+                             num_heads, dropout, i))
+
+        # 输出层（将隐藏层映射到词表维度）
+        self.dense = nn.Linear(num_hiddens, vocab_size)
+
+    def init_state(self, enc_outputs, enc_valid_lens, *args):
+        """初始化解码器状态
+        enc_outputs: 编码器输出
+        enc_valid_lens: 编码器有效长度
+        返回：状态元组 [enc_outputs, enc_valid_lens, [None]*num_layers]
+        """
+        return [enc_outputs, enc_valid_lens, [None] * self.num_layers]
+
+    def forward(self, X, state):
+        """前向传播
+        X: 输入词序列 [batch_size, seq_length]
+        state: 解码器状态
+        返回：输出概率分布及更新后的state
+        """
+        # 嵌入层处理（乘以sqrt(dim)进行缩放）
+        X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens))
+
+        # 存储注意力权重（用于可视化）
+        self._attention_weights = [[None] * len(self.blks) for _ in range (2)]
+        for i, blk in enumerate(self.blks): # 逐层处理
+            X, state = blk(X, state)
+            # # 存储自注意力权重：解码器自注意力权重
+            self._attention_weights[0][
+                i] = blk.attention1.attention.attention_weights
+            # 存储：“编码器－解码器”自注意力权重
+            self._attention_weights[1][
+                i] = blk.attention2.attention.attention_weights
+
+        # 输出层（全连接层+softmax在外部处理）
+        return self.dense(X), state
+
+    @property
+    def attention_weights(self):
+        """获取注意力权重"""
+        return self._attention_weights
+
 
 
 
