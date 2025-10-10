@@ -525,17 +525,23 @@ def test_Add_and_Norm():
           "输出形状:", output.shape)  # torch.Size([2, 3, 4])
 # test_Add_and_Norm()
 
-X = torch.ones((2, 100, 24))
-valid_lens = torch.tensor([3, 2])
+
+# 测试代码（验证维度变换）
+X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+
+# 创建编码器块
 encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
-encoder_blk.eval()
-encoder_blk(X, valid_lens).shape
+encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+output = encoder_blk(X, valid_lens)
+print(f"编码器块输出形状：{output.shape}")
 
-
+# 创建完整编码器
 encoder = common.TransformerEncoder(
     200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
-encoder.eval()
-encoder(torch.ones((2, 100), dtype=torch.long), valid_lens).shape
+encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
+output = encoder(torch.ones((2, 100), dtype=torch.long), valid_lens)
+print(f"编码器输出形状：{output.shape}")
 
 
 

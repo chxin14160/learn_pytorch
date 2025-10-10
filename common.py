@@ -1984,50 +1984,106 @@ class AddNorm(nn.Module):
         # 注意：X和sublayer必须形状相同（如[batch_size, seq_length, dim]）
         return self.ln(self.dropout(Y) + X)
 
-#@save
+
 class EncoderBlock(nn.Module):
-    """Transformer编码器块"""
-    def __init__(self, key_size, query_size, value_size, num_hiddens,
-                 norm_shape, ffn_num_input, ffn_num_hiddens, num_heads,
-                 dropout, use_bias=False, **kwargs):
+    """ Transformer编码器块
+    包含多头自注意力 + 前馈网络 + 残差连接 + 层归一化 """
+    def __init__(self, key_size, query_size, value_size, # qkv向量维度
+                 num_hiddens,       # 隐藏层维度
+                 norm_shape,        # 层归一化形状（通常为[seq_length, dim]）
+                 ffn_num_input,     # 前馈网络输入维度（等于num_hiddens）
+                 ffn_num_hiddens,   # 前馈网络中间层维度
+                 num_heads,         # 多头注意力头数
+                 dropout, use_bias=False, **kwargs): # 随机失活绿，是否使用偏置项
         super(EncoderBlock, self).__init__(**kwargs)
+
+        # 多头自注意力层（输入输出维度均为num_hiddens）
         self.attention = MultiHeadAttention(
             key_size, query_size, value_size, num_hiddens, num_heads, dropout,
             use_bias)
+
+        # 第一个 残差连接+层归一化模块（处理自注意力输出）
+        # 位置前馈网络（逐位置独立处理）
+        # 第二个 残差连接+层归一化模块（处理前馈网络输出）
         self.addnorm1 = AddNorm(norm_shape, dropout)
         self.ffn = PositionWiseFFN(
             ffn_num_input, ffn_num_hiddens, num_hiddens)
         self.addnorm2 = AddNorm(norm_shape, dropout)
 
     def forward(self, X, valid_lens):
-        Y = self.addnorm1(X, self.attention(X, X, X, valid_lens))
-        return self.addnorm2(Y, self.ffn(Y))
+        """前向传播
+        X         : 输入张量 [batch_size, seq_length, num_hiddens]
+        valid_lens: 有效长度掩码 [batch_size]
+        返回：处理后的张量 [batch_size, seq_length, num_hiddens]
+        """
+        # 自注意力计算（Q=K=V=X，全连接自注意力）
+        # 输出形状：[batch_size, seq_length, num_hiddens]
+        attention_output = self.attention(X, X, X, valid_lens)
 
-#@save
+        # 第一个残差连接+层归一化
+        # 公式：LayerNorm(X + Dropout(attention_output))
+        Y = self.addnorm1(X, attention_output)
+
+        # 前馈网络处理
+        # 公式：FFN(Y) = max(0, YW1+b1)W2+b2
+        ffn_output = self.ffn(Y)
+
+        # 第二个残差连接+层归一化
+        return self.addnorm2(Y, ffn_output)
+
+
 class TransformerEncoder(Encoder):
-    """Transformer编码器"""
-    def __init__(self, vocab_size, key_size, query_size, value_size,
-                 num_hiddens, norm_shape, ffn_num_input, ffn_num_hiddens,
-                 num_heads, num_layers, dropout, use_bias=False, **kwargs):
+    """Transformer编码器
+    包含嵌入层+位置编码+堆叠的编码器块 """
+    def __init__(self, vocab_size,                   # 词汇表大小
+                 key_size, query_size, value_size,   # qkv向量维度
+                 num_hiddens,                        # 隐藏层维度
+                 norm_shape,                         # 层归一化形状
+                 ffn_num_input, ffn_num_hiddens,     # 前馈网络的 输入维度 和 中间层维度
+                 num_heads,                          # 多头注意力头数
+                 num_layers,                         # 编码器块堆叠层数
+                 dropout, use_bias=False, **kwargs): # 随机失活绿，是否使用偏置项
         super(TransformerEncoder, self).__init__(**kwargs)
+
         self.num_hiddens = num_hiddens
+
+        # 词嵌入层（添加了dropout）
         self.embedding = nn.Embedding(vocab_size, num_hiddens)
-        self.pos_encoding = d2l.PositionalEncoding(num_hiddens, dropout)
+
+        # 位置编码层（正弦/余弦函数生成）
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+
+        # 堆叠的编码器块（Sequential形式）
         self.blks = nn.Sequential()
         for i in range(num_layers):
+            # 添加编码器块到Sequential
             self.blks.add_module("block"+str(i),
                 EncoderBlock(key_size, query_size, value_size, num_hiddens,
                              norm_shape, ffn_num_input, ffn_num_hiddens,
                              num_heads, dropout, use_bias))
 
     def forward(self, X, valid_lens, *args):
-        # 因为位置编码值在-1和1之间，
-        # 因此嵌入值乘以嵌入维度的平方根进行缩放，
-        # 然后再与位置编码相加。
-        X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens))
-        self.attention_weights = [None] * len(self.blks)
-        for i, blk in enumerate(self.blks):
+        """前向传播
+        X: 输入词序列 [batch_size, seq_length]
+        valid_lens: 有效长度掩码 [batch_size]
+        返回：编码后的张量 [batch_size, seq_length, num_hiddens]
+
+        因为位置编码值在-1和1之间，
+        因此嵌入值乘以嵌入维度的平方根进行缩放，
+        然后再与位置编码相加。
+        """
+        # 嵌入层处理（乘以sqrt(dim)进行缩放）
+        # 公式：Embedding(X) * sqrt(num_hiddens)
+        embedded = self.embedding(X) * math.sqrt(self.num_hiddens)
+
+        # 位置编码（添加位置信息）
+        # 公式：X = embedded + PositionalEncoding(embedded)
+        X = self.pos_encoding(embedded)
+
+        self.attention_weights = [None] * len(self.blks) # 存储各层注意力权重
+        for i, blk in enumerate(self.blks): # 逐层处理
             X = blk(X, valid_lens)
+            # 保存每层注意力权重（用于可视化分析）
             self.attention_weights[
                 i] = blk.attention.attention.attention_weights
         return X
