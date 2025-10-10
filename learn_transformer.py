@@ -493,8 +493,8 @@ print("输入形状:", input_tensor.shape)  # torch.Size([2, 3, 4])
 print("输出形状:", output.shape)        # torch.Size([2, 3, 8])
 print("首样本输出:\n", first_sample_output)
 
-ln = nn.LayerNorm(2)    # 创建层归一化对象（对每个样本的所有特征归一化）
-bn = nn.BatchNorm1d(2)  # 创建批归一化对象（对每个特征跨样本归一化）
+ln = nn.LayerNorm(2)    # 创建【层】归一化对象（对每个样本的所有特征归一化）
+bn = nn.BatchNorm1d(2)  # 创建【批】归一化对象（对每个特征跨样本归一化）
 
 # 创建输入数据：2个样本，每个样本2个特征
 X = torch.tensor([[1, 2], [2, 3]], dtype=torch.float32)
