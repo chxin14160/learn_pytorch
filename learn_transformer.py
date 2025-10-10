@@ -631,40 +631,74 @@ net = common.EncoderDecoder(encoder, decoder)
 common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
 
 
+# 英法对照测试集
 engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
 fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
-for eng, fra in zip(engs, fras):
+for eng, fra in zip(engs, fras): # 逐句进行机器翻译并评估
+    # 预测翻译结果（包含注意力权重序列）
     translation, dec_attention_weight_seq = common.predict_seq2seq(
-        net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+        net,           # 训练好的seq2seq模型
+        eng,           # 待翻译的英文句子
+        src_vocab,     # 源语言词汇表
+        tgt_vocab,     # 目标语言词汇表
+        num_steps,     # 最大序列长度
+        device,        # 计算设备（GPU/CPU）
+        True           # 返回注意力权重
+    )
+    # 计算BLEU-2分数（双语评估替手）
     print(f'{eng} => {translation}, ',
           f'bleu {common.bleu(translation, fra, k=2):.3f}')
 
-enc_attention_weights = torch.cat(net.encoder.attention_weights, 0).reshape((num_layers, num_heads,
-    -1, num_steps))
+# 提取编码器各层注意力权重
+enc_attention_weights = torch.cat(net.encoder.attention_weights, 0)  # 拼接所有层
+enc_attention_weights = enc_attention_weights.reshape((
+    num_layers,    # 2层编码器
+    num_heads,     # 4个注意力头
+    -1,            # 自动计算维度（源序列长度）
+    num_steps      # 目标序列长度
+))
 print(f"编码器注意力权重：{enc_attention_weights.shape}")
 
+# 可视化编码器自注意力热图
 common.show_heatmaps(
-    enc_attention_weights.cpu(), xlabel='Key positions',
-    ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
-    figsize=(7, 3.5))
+    enc_attention_weights.cpu(),  # 转为CPU张量
+    xlabel='Key positions',  # 横轴：键位置
+    ylabel='Query positions',  # 纵轴：查询位置
+    titles=['Head %d' % i for i in range(1, 5)],  # 4个头的标题
+    figsize=(7, 3.5)  # 图像尺寸
+)
 
-
+# 解码器注意力权重处理
+# 二维列表构建：按时间步、层、注意力类型、头展开权重
 dec_attention_weights_2d = [head[0].tolist()
-                            for step in dec_attention_weight_seq
-                            for attn in step for blk in attn for head in blk]
+                            for step in dec_attention_weight_seq # 遍历时间步
+                            for attn in step    # 遍历解码器层（attn，即每层的注意力数据）
+                            for blk in attn     # 遍历注意力类型（blk，即 自注意力/交叉注意力）
+                            for head in blk]    # 遍历注意力头
+
+# 转换为DataFrame并填充缺失值
+# 缺失值处理：使用fillna(0.0)将NaN填充为0
 dec_attention_weights_filled = torch.tensor(
     pd.DataFrame(dec_attention_weights_2d).fillna(0.0).values)
+
+# 重塑为5维张量：[时间步, 2种类型, 层数, 头数, 序列长度]
 dec_attention_weights = dec_attention_weights_filled.reshape((-1, 2, num_layers, num_heads, num_steps))
+
+# 分离两种注意力类型
 dec_self_attention_weights, dec_inter_attention_weights = \
-    dec_attention_weights.permute(1, 2, 3, 0, 4)
-dec_self_attention_weights.shape, dec_inter_attention_weights.shape
+    dec_attention_weights.permute(1, 2, 3, 0, 4) # 调整维度顺序
+# 打印维度确认
+print(f"自注意力：\n{dec_self_attention_weights.shape}")
+print(f"交叉注意力：\n{dec_inter_attention_weights.shape}")
 
 # Plusonetoincludethebeginning-of-sequencetoken
+# 可视化解码器自注意力热图（包含起始符）
 common.show_heatmaps(
     dec_self_attention_weights[:, :, :, :len(translation.split()) + 1],
     xlabel='Key positions', ylabel='Query positions',
     titles=['Head %d' % i for i in range(1, 5)], figsize=(7, 3.5))
 
+# 可视化解码器交叉注意力热图（编码器-解码器）
 common.show_heatmaps(
     dec_inter_attention_weights, xlabel='Key positions',
     ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
