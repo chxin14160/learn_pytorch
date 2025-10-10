@@ -1956,7 +1956,6 @@ class AddNorm(nn.Module):
     """
     def __init__(self, normalized_shape, dropout, **kwargs):
         """
-        参数说明：
         normalized_shape: 输入张量的最后维度（如[3,4]表示最后维度为4）
         dropout: 随机失活概率
         """
@@ -1965,8 +1964,7 @@ class AddNorm(nn.Module):
         self.ln = nn.LayerNorm(normalized_shape) # 层归一化层（对每个样本的所有特征进行归一化）
 
     def forward(self, X, Y):
-        """
-        前向传播逻辑：
+        """ 前向传播逻辑：
         1. 执行残差连接：X + sublayer
         2. 随机失活：防止过拟合
         3. 层归一化：稳定数值分布，加速收敛
