@@ -1951,8 +1951,11 @@ class PositionWiseFFN(nn.Module):
 class AddNorm(nn.Module):
     """残差连接后进行层规范化
     实现残差连接（Residual Connection）后进行层归一化（Layer Normalization）
-    结构：Sublayer Output + Dropout → LayerNorm
-    作用：缓解梯度消失，加速训练，增强模型稳定性
+    结构：Sublayer Output → Dropout → (X + Dropout(Y)) → LayerNorm
+    作用：
+        1. 残差连接：缓解梯度消失，支持深层网络训练
+        2. 层归一化：稳定各层输入分布，加速收敛
+        3. Dropout在残差连接前应用：防止子层过拟合同时保护残差梯度通路
     """
     def __init__(self, normalized_shape, dropout, **kwargs):
         """
@@ -1960,14 +1963,22 @@ class AddNorm(nn.Module):
         dropout: 随机失活概率
         """
         super(AddNorm, self).__init__(**kwargs)
-        self.dropout = nn.Dropout(dropout) # 随机失活层（训练时随机置零部分神经元，防止过拟合）
-        self.ln = nn.LayerNorm(normalized_shape) # 层归一化层（对每个样本的所有特征进行归一化）
+        self.dropout = nn.Dropout(dropout) # 作用在子层输出
+        # 层归一化层，作用于残差连接结果(对每个样本的所有特征进行归一化)
+        self.ln = nn.LayerNorm(normalized_shape)
 
     def forward(self, X, Y):
-        """ 前向传播逻辑：
-        1. 执行残差连接：X + sublayer
-        2. 随机失活：防止过拟合
-        3. 层归一化：稳定数值分布，加速收敛
+        """ 前向传播
+        X: 残差输入（通常来自上一层或跳跃连接）
+        Y: 子层输出（如注意力层/前馈网络输出）
+        返回：层归一化后的张量
+        逻辑：
+            1. 子层输出Y经过Dropout（防止过拟合）
+            2. 执行残差连接：X + Dropout(Y)
+            3. 层归一化：稳定数值分布，加速收敛
+        Dropout(Y) 即为 sublayer
+        Dropout应作用于：子层输出(Y)之后、残差连接之前
+        顺序： Dropout → 残差连接 → 层归一化
         """
         # 残差连接：输入X与子层输出sublayer相加
         # 注意：X和sublayer必须形状相同（如[batch_size, seq_length, dim]）
