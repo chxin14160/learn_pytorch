@@ -2,7 +2,21 @@ import torch
 from torch import nn
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import common
+
+
+# 下载器与数据集配置
+# 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
+downloader = common.C_Downloader()
+DATA_HUB = downloader.DATA_HUB  # 字典，存储数据集名称与下载信息
+DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
+
+# 注册数据集信息到DATA_HUB全局字典
+# 格式：(数据集URL, MD5校验值)
+DATA_HUB['fra-eng'] = (DATA_URL + 'fra-eng.zip', # 完整下载URL（DATA_URL是d2l定义的基准URL）
+                           '94646ad1522d915e7b0f9296181140edcf86a4f5') # 文件MD5，用于校验下载完整性
+
 
 # print(f"10x10 的单位矩阵（对角线为 1，其余为 0）：\n{torch.eye(10)}")
 
@@ -253,18 +267,6 @@ def attention_scoring_function():
                           xlabel='Keys', ylabel='Queries')
     # learn_DotProductAttention()
 # attention_scoring_function()
-
-
-# 下载器与数据集配置
-# 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
-downloader = common.C_Downloader()
-DATA_HUB = downloader.DATA_HUB  # 字典，存储数据集名称与下载信息
-DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
-
-# 注册数据集信息到DATA_HUB全局字典
-# 格式：(数据集URL, MD5校验值)
-DATA_HUB['fra-eng'] = (DATA_URL + 'fra-eng.zip', # 完整下载URL（DATA_URL是d2l定义的基准URL）
-                           '94646ad1522d915e7b0f9296181140edcf86a4f5') # 文件MD5，用于校验下载完整性
 
 
 def learn_Bahdanau_attention():
@@ -548,24 +550,125 @@ def test_transformer_encoder():
 # test_transformer_encoder()
 
 
-# 创建编码器块
-encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
-encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+def test_transformer_encoder():
+    ''' 测试：transformer的解码器块 '''
+    # 创建编码器块
+    encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
+    encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
-# 创建解码器块
-decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
-decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+    # 创建解码器块
+    decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
+    decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
-X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
-valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+    X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+    valid_lens = torch.tensor([3, 2]) # 有效长度掩码
 
-state = [encoder_blk(X, valid_lens), valid_lens, [None]] # 构建解码器状态
-output = decoder_blk(X, state) # 前向传播
-print(f"解码器块输出，第一个批次的形状：{output[0].shape}") # torch.Size([2, 100, 24])
+    state = [encoder_blk(X, valid_lens), valid_lens, [None]] # 构建解码器状态
+    output = decoder_blk(X, state) # 前向传播
+    print(f"解码器块输出，第一个批次的形状：{output[0].shape}") # torch.Size([2, 100, 24])
+# test_transformer_encoder()
 
 
+# 配置超参数
+num_hiddens = 32  # 隐藏层维度（Transformer特征维度）
+num_layers = 2  # 编码器/解码器堆叠层数
+dropout = 0.1  # 随机失活概率（防止过拟合）
+batch_size = 64  # 训练批次大小
+num_steps = 10  # 序列最大长度（防止过长序列）
+lr = 0.005  # 学习率（Adam优化器）
+num_epochs = 200  # 训练轮次
+device = common.try_gpu()  # 自动选择GPU/CPU
+
+# 前馈网络参数
+ffn_num_input = 32  # 前馈网络输入维度（等于num_hiddens）
+ffn_num_hiddens = 64  # 前馈网络中间层维度（通常为4倍输入维度）
+num_heads = 4  # 多头注意力头数
+
+# 注意力机制参数
+key_size = query_size = value_size = 32  # K/Q/V向量维度
+norm_shape = [32]  # 层归一化维度（与num_hiddens一致）
+
+# 加载机器翻译数据集（中英翻译示例）
+# 返回：数据迭代器、源语言词汇表、目标语言词汇表
+train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
+
+# 构建Transformer编码器
+encoder = common.TransformerEncoder(
+    vocab_size=len(src_vocab),    # 源语言词汇表大小
+    key_size=key_size,             # 键向量维度
+    query_size=query_size,         # 查询向量维度
+    value_size=value_size,         # 值向量维度
+    num_hiddens=num_hiddens,       # 隐藏层维度
+    norm_shape=norm_shape,         # 层归一化形状
+    ffn_num_input=ffn_num_input,   # 前馈网络输入维度
+    ffn_num_hiddens=ffn_num_hiddens, # 前馈网络中间层维度
+    num_heads=num_heads,           # 多头注意力头数
+    num_layers=num_layers,         # 编码器层数
+    dropout=dropout               # 随机失活概率
+)
+
+# 构建Transformer解码器
+decoder = common.TransformerDecoder(
+    vocab_size=len(tgt_vocab),    # 目标语言词汇表大小
+    # 其他参数与编码器配置一致
+    key_size=key_size,
+    query_size=query_size,
+    value_size=value_size,
+    num_hiddens=num_hiddens,
+    norm_shape=norm_shape,
+    ffn_num_input=ffn_num_input,
+    ffn_num_hiddens=ffn_num_hiddens,
+    num_heads=num_heads,
+    num_layers=num_layers,
+    dropout=dropout
+)
+
+# 组合编码器-解码器架构
+net = common.EncoderDecoder(encoder, decoder)
+
+# 训练序列到序列模型
+# 模型，训练数据迭代器，学习率，训练轮次，目标语言词汇表（用于评估），训练设备
+common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
 
 
+engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
+fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
+for eng, fra in zip(engs, fras):
+    translation, dec_attention_weight_seq = common.predict_seq2seq(
+        net, eng, src_vocab, tgt_vocab, num_steps, device, True)
+    print(f'{eng} => {translation}, ',
+          f'bleu {common.bleu(translation, fra, k=2):.3f}')
+
+enc_attention_weights = torch.cat(net.encoder.attention_weights, 0).reshape((num_layers, num_heads,
+    -1, num_steps))
+print(f"编码器注意力权重：{enc_attention_weights.shape}")
+
+common.show_heatmaps(
+    enc_attention_weights.cpu(), xlabel='Key positions',
+    ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
+    figsize=(7, 3.5))
+
+
+dec_attention_weights_2d = [head[0].tolist()
+                            for step in dec_attention_weight_seq
+                            for attn in step for blk in attn for head in blk]
+dec_attention_weights_filled = torch.tensor(
+    pd.DataFrame(dec_attention_weights_2d).fillna(0.0).values)
+dec_attention_weights = dec_attention_weights_filled.reshape((-1, 2, num_layers, num_heads, num_steps))
+dec_self_attention_weights, dec_inter_attention_weights = \
+    dec_attention_weights.permute(1, 2, 3, 0, 4)
+dec_self_attention_weights.shape, dec_inter_attention_weights.shape
+
+# Plusonetoincludethebeginning-of-sequencetoken
+common.show_heatmaps(
+    dec_self_attention_weights[:, :, :, :len(translation.split()) + 1],
+    xlabel='Key positions', ylabel='Query positions',
+    titles=['Head %d' % i for i in range(1, 5)], figsize=(7, 3.5))
+
+common.show_heatmaps(
+    dec_inter_attention_weights, xlabel='Key positions',
+    ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
+    figsize=(7, 3.5))
 
 
 plt.pause(4444)  # 间隔的秒数： 4s
