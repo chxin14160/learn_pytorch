@@ -2128,10 +2128,10 @@ class DecoderBlock(nn.Module):
         #       因此state[2][self.i]包含着直到当前时间步第i个块解码的输出表示
 
         # 缓存管理：训练时每次重新计算，预测时使用缓存
-        if state[2][self.i] is None:  # 首次计算
-            key_values = X
-        else: # 预测阶段使用缓存
-            # 直接将历史记录 与 当前的新输入 拼接起来
+        if state[2][self.i] is None:  # 训练阶段或预测首次计算
+            key_values = X            # 直接使用当前输入X作为初始缓存
+        else:                         # 预测阶段（非首次）
+            # 历史缓存（state[2][self.i]）与 当前输入X沿序列维度（axis=1）拼接
             key_values = torch.cat((state[2][self.i], X), axis=1)
         state[2][self.i] = key_values # 更新缓存
 
