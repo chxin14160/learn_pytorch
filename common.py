@@ -1987,14 +1987,14 @@ class AddNorm(nn.Module):
 
 class EncoderBlock(nn.Module):
     """ Transformer编码器块
-    包含多头自注意力 + 前馈网络 + 残差连接 + 层归一化 """
+    包含多头自注意力 + (残差连接+层归一化) + 前馈网络 + (残差连接+层归一化) """
     def __init__(self, key_size, query_size, value_size, # qkv向量维度
                  num_hiddens,       # 隐藏层维度
                  norm_shape,        # 层归一化形状（通常为[seq_length, dim]）
                  ffn_num_input,     # 前馈网络输入维度（等于num_hiddens）
                  ffn_num_hiddens,   # 前馈网络中间层维度
                  num_heads,         # 多头注意力头数
-                 dropout, use_bias=False, **kwargs): # 随机失活绿，是否使用偏置项
+                 dropout, use_bias=False, **kwargs): # 随机失活率，是否使用偏置项
         super(EncoderBlock, self).__init__(**kwargs)
 
         # 多头自注意力层（输入输出维度均为num_hiddens）
@@ -2002,13 +2002,10 @@ class EncoderBlock(nn.Module):
             key_size, query_size, value_size, num_hiddens, num_heads, dropout,
             use_bias)
 
-        # 第一个 残差连接+层归一化模块（处理自注意力输出）
-        # 位置前馈网络（逐位置独立处理）
-        # 第二个 残差连接+层归一化模块（处理前馈网络输出）
-        self.addnorm1 = AddNorm(norm_shape, dropout)
+        self.addnorm1 = AddNorm(norm_shape, dropout) # 残差连接+层归一化模块一（处理自注意力输出）
         self.ffn = PositionWiseFFN(
-            ffn_num_input, ffn_num_hiddens, num_hiddens)
-        self.addnorm2 = AddNorm(norm_shape, dropout)
+            ffn_num_input, ffn_num_hiddens, num_hiddens) # 位置前馈网络（逐位置独立处理）
+        self.addnorm2 = AddNorm(norm_shape, dropout) # 残差连接+层归一化模块二（处理前馈网络输出）
 
     def forward(self, X, valid_lens):
         """前向传播
@@ -2055,9 +2052,9 @@ class TransformerEncoder(Encoder):
 
         # 堆叠的编码器块（Sequential形式）
         self.blks = nn.Sequential()
-        for i in range(num_layers):
+        for i in range(num_layers): # 共堆叠num_layers个编码器块
             # 添加编码器块到Sequential
-            self.blks.add_module("block"+str(i),
+            self.blks.add_module("block"+str(i), # 编码器块名字叫 block1~blockN
                 EncoderBlock(key_size, query_size, value_size, num_hiddens,
                              norm_shape, ffn_num_input, ffn_num_hiddens,
                              num_heads, dropout, use_bias))
@@ -2082,7 +2079,7 @@ class TransformerEncoder(Encoder):
 
         self.attention_weights = [None] * len(self.blks) # 存储各层注意力权重
         for i, blk in enumerate(self.blks): # 逐层处理
-            X = blk(X, valid_lens)
+            X = blk(X, valid_lens) # 数据流经过每个编码器块
             # 保存每层注意力权重（用于可视化分析）
             self.attention_weights[
                 i] = blk.attention.attention.attention_weights

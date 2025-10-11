@@ -532,6 +532,7 @@ def test_Add_and_Norm():
 def test_transformer_encoder():
     ''' 测试：transformer的编码器块及编码器 '''
     # 测试代码（验证维度变换）
+    # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
     X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
     valid_lens = torch.tensor([3, 2]) # 有效长度掩码
 
@@ -560,6 +561,7 @@ def test_transformer_encoder():
     decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
     decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
+    # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
     X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
     valid_lens = torch.tensor([3, 2]) # 有效长度掩码
 
