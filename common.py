@@ -2064,13 +2064,11 @@ class TransformerEncoder(Encoder):
         X: 输入词序列 [batch_size, seq_length]
         valid_lens: 有效长度掩码 [batch_size]
         返回：编码后的张量 [batch_size, seq_length, num_hiddens]
-
-        因为位置编码值在-1和1之间，
-        因此嵌入值乘以嵌入维度的平方根进行缩放，
-        然后再与位置编码相加。
         """
         # 嵌入层处理（乘以sqrt(dim)进行缩放）
         # 公式：Embedding(X) * sqrt(num_hiddens)
+        # 因为位置编码值在-1和1之间，因此嵌入值乘以嵌入维度的平方根进行缩放，
+        # 然后再与位置编码相加
         embedded = self.embedding(X) * math.sqrt(self.num_hiddens)
 
         # 位置编码（添加位置信息）
@@ -2096,56 +2094,61 @@ class DecoderBlock(nn.Module):
         super(DecoderBlock, self).__init__(**kwargs)
         self.i = i # 记录当前解码器层索引
 
-        # 自注意力层（带掩码机制防止看到未来信息）
+        # 自注意力层：掩蔽多头注意力（带掩码机制防止看到未来信息）
         self.attention1 = MultiHeadAttention(
             key_size, query_size, value_size, num_hiddens, num_heads, dropout)
-        self.addnorm1 = AddNorm(norm_shape, dropout)
+        self.addnorm1 = AddNorm(norm_shape, dropout) # 第一个残差连接+层归一化
 
         # 编码器-解码器注意力层（使用编码器输出作为K/V）
         self.attention2 = MultiHeadAttention(
             key_size, query_size, value_size, num_hiddens, num_heads, dropout)
-        self.addnorm2 = AddNorm(norm_shape, dropout)
+        self.addnorm2 = AddNorm(norm_shape, dropout) # 第二个残差连接+层归一化
 
         # 位置前馈网络
         self.ffn = PositionWiseFFN(ffn_num_input, ffn_num_hiddens,
                                    num_hiddens)
-        self.addnorm3 = AddNorm(norm_shape, dropout)
+        self.addnorm3 = AddNorm(norm_shape, dropout) # 第三个残差连接+层归一化
 
     def forward(self, X, state):
         """前向传播
         X: 输入张量 [batch_size, seq_length, num_hiddens]
         state: 包含3个元素的列表
-            [0] enc_outputs: 编码器输出
+            [0] enc_outputs   : 编码器输出
             [1] enc_valid_lens: 编码器有效长度
-            [2] cached_states: 各层缓存状态列表
+            [2] cached_states : 各层缓存状态列表
         返回：处理后的张量及更新后的state
         """
         # 提取状态信息
+        # 编码器输出是只有 编码后的张量
         enc_outputs, enc_valid_lens = state[0], state[1]
 
-        # 训练阶段，输出序列的所有词元都在同一时间处理，
-        # 因此state[2][self.i]初始化为None。
-        # 预测阶段，输出序列是通过词元一个接着一个解码的，
-        # 因此state[2][self.i]包含着直到当前时间步第i个块解码的输出表示
+        # 训练阶段：输出序列的所有词元都在同一时间处理，
+        #       因此state[2][self.i]初始化为None
+        # 预测阶段：输出序列是通过词元一个接着一个解码的，
+        #       因此state[2][self.i]包含着直到当前时间步第i个块解码的输出表示
 
         # 缓存管理：训练时每次重新计算，预测时使用缓存
         if state[2][self.i] is None:  # 首次计算
             key_values = X
         else: # 预测阶段使用缓存
+            # 直接将历史记录 与 当前的新输入 拼接起来
             key_values = torch.cat((state[2][self.i], X), axis=1)
         state[2][self.i] = key_values # 更新缓存
 
         # 训练阶段：生成有效长度掩码（递增序列）
         if self.training:
+            # 解码：批次数 和 序列长度/时间步，特征维度使用占位符
             batch_size, num_steps, _ = X.shape
             # dec_valid_lens的开头:(batch_size,num_steps),
             # 其中每一行是[1,2,...,num_steps]
+            # .repeat()调整为列向量形式
             dec_valid_lens = torch.arange(
                 1, num_steps + 1, device=X.device).repeat(batch_size, 1)
         else:
             dec_valid_lens = None # 预测阶段不需要
 
-        # 自注意力（带掩码）
+        # 自注意力层：掩蔽多头注意力（带掩码）
+        # qkv皆来自上一解码器层的输出
         # 公式：Attention(Q=X, K=key_values, V=key_values)
         X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
         Y = self.addnorm1(X, X2) # 残差连接+层归一化
