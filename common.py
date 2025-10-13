@@ -2126,8 +2126,11 @@ class DecoderBlock(nn.Module):
         #       因此state[2][self.i]初始化为None
         # 预测阶段：输出序列是通过词元一个接着一个解码的，
         #       因此state[2][self.i]包含着直到当前时间步第i个块解码的输出表示
+        # state[2] 各层缓存状态合集，state[2][i] 第i层解码器块的缓存
 
-        # 缓存管理：训练时每次重新计算，预测时使用缓存
+        # 缓存管理：存储历史计算状态来避免重复计算，提升推理效率
+        # 训练时：每次重新计算(训练阶段每个批次处理整个目标序列，因此不需要缓存历史状态，因为每个时间步的输入都是完整的序列)
+        # 预测时：使用缓存。逐词生成，需拼接历史缓存state[2][self.i] 和 当前输入X，形成完整上下文
         if state[2][self.i] is None:  # 训练阶段或预测首次计算
             key_values = X            # 直接使用当前输入X作为初始缓存
         else:                         # 预测阶段（非首次）
@@ -2135,7 +2138,7 @@ class DecoderBlock(nn.Module):
             key_values = torch.cat((state[2][self.i], X), axis=1)
         state[2][self.i] = key_values # 更新缓存
 
-        # 训练阶段：生成有效长度掩码（递增序列）
+        # 训练阶段：生成有效长度掩码（递增序列），用于屏蔽未来信息
         if self.training:
             # 解码：批次数 和 序列长度/时间步，特征维度使用占位符
             batch_size, num_steps, _ = X.shape
@@ -2144,16 +2147,16 @@ class DecoderBlock(nn.Module):
             # .repeat()调整为列向量形式
             dec_valid_lens = torch.arange(
                 1, num_steps + 1, device=X.device).repeat(batch_size, 1)
-        else:
+        else: # 推理时：无需掩码（因缓存已隐含时序）
             dec_valid_lens = None # 预测阶段不需要
 
         # 自注意力层：掩蔽多头注意力（带掩码）
-        # qkv皆来自上一解码器层的输出
+        # qkv皆来自上一解码器层的输出(q为上一层解码器层输出，kv为拼接后的缓存，即 包含历史所有时间步的键值对)
         # 公式：Attention(Q=X, K=key_values, V=key_values)
         X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
         Y = self.addnorm1(X, X2) # 残差连接+层归一化
 
-        # 编码器－解码器注意力
+        # 编码器－解码器注意力：q来自上一解码层的输出，kv来自整个编码器的输出
         # 公式：Attention(Q=Y, K=enc_outputs, V=enc_outputs)
         # enc_outputs的开头:(batch_size,num_steps,num_hiddens)
         Y2 = self.attention2(Y, enc_outputs, enc_outputs, enc_valid_lens)
