@@ -572,19 +572,19 @@ def test_transformer_encoder():
 
 
 # 配置超参数
-num_hiddens = 32  # 隐藏层维度（Transformer特征维度）
-num_layers = 2  # 编码器/解码器堆叠层数
-dropout = 0.1  # 随机失活概率（防止过拟合）
-batch_size = 64  # 训练批次大小
-num_steps = 10  # 序列最大长度（防止过长序列）
-lr = 0.005  # 学习率（Adam优化器）
-num_epochs = 200  # 训练轮次
+num_hiddens = 32    # 隐藏层维度（Transformer特征维度）
+num_layers  = 2     # 编码器/解码器堆叠层数
+dropout     = 0.1   # 随机失活概率（防止过拟合）
+batch_size  = 64    # 训练批次大小
+num_steps   = 10    # 序列最大长度（防止过长序列）
+lr          = 0.005 # 学习率（Adam优化器）
+num_epochs  = 200   # 训练轮次
 device = common.try_gpu()  # 自动选择GPU/CPU
 
 # 前馈网络参数
-ffn_num_input = 32  # 前馈网络输入维度（等于num_hiddens）
+ffn_num_input   = 32  # 前馈网络输入维度（等于num_hiddens）
 ffn_num_hiddens = 64  # 前馈网络中间层维度（通常为4倍输入维度）
-num_heads = 4  # 多头注意力头数
+num_heads       = 4   # 多头注意力头数
 
 # 注意力机制参数
 key_size = query_size = value_size = 32  # K/Q/V向量维度
@@ -596,17 +596,17 @@ train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, 
 
 # 构建Transformer编码器
 encoder = common.TransformerEncoder(
-    vocab_size=len(src_vocab),    # 源语言词汇表大小
-    key_size=key_size,             # 键向量维度
-    query_size=query_size,         # 查询向量维度
-    value_size=value_size,         # 值向量维度
-    num_hiddens=num_hiddens,       # 隐藏层维度
-    norm_shape=norm_shape,         # 层归一化形状
-    ffn_num_input=ffn_num_input,   # 前馈网络输入维度
+    vocab_size=len(src_vocab),       # 源语言词汇表大小
+    key_size=key_size,               # 键向量维度
+    query_size=query_size,           # 查询向量维度
+    value_size=value_size,           # 值向量维度
+    num_hiddens=num_hiddens,         # 隐藏层维度
+    norm_shape=norm_shape,           # 层归一化形状
+    ffn_num_input=ffn_num_input,     # 前馈网络输入维度
     ffn_num_hiddens=ffn_num_hiddens, # 前馈网络中间层维度
-    num_heads=num_heads,           # 多头注意力头数
-    num_layers=num_layers,         # 编码器层数
-    dropout=dropout               # 随机失活概率
+    num_heads=num_heads,             # 多头注意力头数
+    num_layers=num_layers,           # 编码器层数
+    dropout=dropout                  # 随机失活概率
 )
 
 # 构建Transformer解码器
@@ -653,40 +653,52 @@ for eng, fra in zip(engs, fras): # 逐句进行机器翻译并评估
 
 # 提取编码器各层注意力权重
 enc_attention_weights = torch.cat(net.encoder.attention_weights, 0)  # 拼接所有层
+print(f"（原来的）编码器注意力权重：{enc_attention_weights.shape}")
 enc_attention_weights = enc_attention_weights.reshape((
     num_layers,    # 2层编码器
     num_heads,     # 4个注意力头
     -1,            # 自动计算维度（源序列长度）
     num_steps      # 目标序列长度
 ))
-print(f"编码器注意力权重：{enc_attention_weights.shape}")
+print(f"（重塑后）编码器注意力权重：{enc_attention_weights.shape}")
 
 # 可视化编码器自注意力热图
 common.show_heatmaps(
-    enc_attention_weights.cpu(),  # 转为CPU张量
-    xlabel='Key positions',  # 横轴：键位置
-    ylabel='Query positions',  # 纵轴：查询位置
-    titles=['Head %d' % i for i in range(1, 5)],  # 4个头的标题
-    figsize=(7, 3.5)  # 图像尺寸
+    enc_attention_weights.cpu(),    # 转为CPU张量[2行(编码器层数)，4列(注意力头数)，Q，K]
+    xlabel='Key positions',         # 横轴：键位置
+    ylabel='Query positions',       # 纵轴：查询位置
+    titles=['Head %d' % i for i in range(1, 5)], # 4个头的标题
+    figsize=(7, 3.5)                # 图像尺寸
 )
 
-# 解码器注意力权重处理
-# 二维列表构建：按时间步、层、注意力类型、头展开权重
-dec_attention_weights_2d = [head[0].tolist()
-                            for step in dec_attention_weight_seq # 遍历时间步
-                            for attn in step    # 遍历解码器层（attn，即每层的注意力数据）
-                            for blk in attn     # 遍历注意力类型（blk，即 自注意力/交叉注意力）
-                            for head in blk]    # 遍历注意力头
+# 解码器注意力权重处理：将多维度注意力权重转换为可视化友好的5D张量
+# 二维列表构建：按 时间步、层、注意力类型、头展开权重
+dec_attention_weights_2d = [head[0].tolist()    # 将每个头的权重矩阵 转换为Python列表
+                            for step in dec_attention_weight_seq # 遍历时间步(每个时间步对应一个解码器输出位置)
+                            for attn in step    # 遍历解码器层（attn：每层的注意力数据）(每个时间步包含所有层的注意力数据)
+                            for blk  in attn    # 遍历注意力类型（blk：自注意力/交叉注意力）
+                            for head in blk]    # 遍历注意力头(每个注意力类型下的所有头)
+# 此时数据结构：二维列表 [总样本数, 序列长度]，每个元素是某个头在某个位置上的权重矩阵
 
 # 转换为DataFrame并填充缺失值
-# 缺失值处理：使用fillna(0.0)将NaN填充为0
+# pd.DataFrame()从二维列表到 DataFrame，为后续的fillna() 提供结构化操作接口
+# 缺失值处理：fillna(0.0)将 缺失值NaN 填充为 0
+# DataFrame.values 转换为 NumPy数组：跨库数据桥接
+# torch.tensor() 转换为 PyTorch 张量：适配深度学习框架
 dec_attention_weights_filled = torch.tensor(
-    pd.DataFrame(dec_attention_weights_2d).fillna(0.0).values)
+    pd.DataFrame(dec_attention_weights_2d)
+    .fillna(0.0)
+    .values) # 类型变化：DataFrame → NumPy数组 → 张量
 
 # 重塑为5维张量：[时间步, 2种类型, 层数, 头数, 序列长度]
-dec_attention_weights = dec_attention_weights_filled.reshape((-1, 2, num_layers, num_heads, num_steps))
+# 类型维度：0=自注意力，1=交叉注意力
+dec_attention_weights = (dec_attention_weights_filled
+                         .reshape((-1, 2, num_layers, num_heads, num_steps)))
 
 # 分离两种注意力类型
+# 通过维度置换调整张量存储顺序，便于按注意力类型切片
+# permute原理：将原维度索引[0,1,2,3,4]映射到新顺序[1,2,3,0,4]，实现注意力类型的分离
+# 新维度：[类型, 层, 头, 时间步, 序列长度]
 dec_self_attention_weights, dec_inter_attention_weights = \
     dec_attention_weights.permute(1, 2, 3, 0, 4) # 调整维度顺序
 # 打印维度确认
@@ -694,9 +706,9 @@ print(f"自注意力：\n{dec_self_attention_weights.shape}")
 print(f"交叉注意力：\n{dec_inter_attention_weights.shape}")
 
 # Plusonetoincludethebeginning-of-sequencetoken
-# 可视化解码器自注意力热图（包含起始符）
+# 可视化解码器自注意力热图（包含起始符<BOS>）
 common.show_heatmaps(
-    dec_self_attention_weights[:, :, :, :len(translation.split()) + 1],
+    dec_self_attention_weights[:, :, :, :len(translation.split()) + 1], # +1包含起始符
     xlabel='Key positions', ylabel='Query positions',
     titles=['Head %d' % i for i in range(1, 5)], figsize=(7, 3.5))
 
@@ -705,6 +717,7 @@ common.show_heatmaps(
     dec_inter_attention_weights, xlabel='Key positions',
     ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
     figsize=(7, 3.5))
+# 交叉注意力核心：展示解码器如何关注编码器输出的不同位置
 
 
 plt.pause(4444)  # 间隔的秒数： 4s

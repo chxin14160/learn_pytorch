@@ -2129,8 +2129,9 @@ class DecoderBlock(nn.Module):
         # state[2] 各层缓存状态合集，state[2][i] 第i层解码器块的缓存
 
         # 缓存管理：存储历史计算状态来避免重复计算，提升推理效率
-        # 训练时：每次重新计算(训练阶段每个批次处理整个目标序列，因此不需要缓存历史状态，因为每个时间步的输入都是完整的序列)
-        # 预测时：使用缓存。逐词生成，需拼接历史缓存state[2][self.i] 和 当前输入X，形成完整上下文
+        # 训练时：每次重新计算(训练时每个批次处理整个目标序列，因此无需缓存历史状态，因为每个时间步的输入皆完整序列)
+        # 预测时：使用缓存。逐词生成，需拼接历史缓存state[2][self.i] 和 当前输入X，形成新的完整上下文
+        # 首次预测时，只有提示词，即首个当前输入
         if state[2][self.i] is None:  # 训练阶段或预测首次计算
             key_values = X            # 直接使用当前输入X作为初始缓存
         else:                         # 预测阶段（非首次）
@@ -2151,7 +2152,8 @@ class DecoderBlock(nn.Module):
             dec_valid_lens = None # 预测阶段不需要
 
         # 自注意力层：掩蔽多头注意力（带掩码）
-        # qkv皆来自上一解码器层的输出(q为上一层解码器层输出，kv为拼接后的缓存，即 包含历史所有时间步的键值对)
+        # qkv皆来自上一解码器层的输出(q为上一层解码器层输出，kv
+        # 预测时为拼接后的缓存，即 包含历史所有时间步的键值对；训练时为完整键值对，但是经过防窥掩码后的键值对)
         # 公式：Attention(Q=X, K=key_values, V=key_values)
         X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
         Y = self.addnorm1(X, X2) # 残差连接+层归一化
@@ -2182,13 +2184,13 @@ class TransformerDecoder(AttentionDecoder):
         # 词嵌入层
         self.embedding = nn.Embedding(vocab_size, num_hiddens)
 
-        # 位置编码层
+        # 位置编码层（正弦/余弦函数生成）
         self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
 
-        # 堆叠的解码器块
+        # 堆叠的解码器块（使用顺序容器）
         self.blks = nn.Sequential()
-        for i in range(num_layers):
-            self.blks.add_module("block"+str(i),
+        for i in range(num_layers): # 共堆叠num_layers个解码器块
+            self.blks.add_module("block"+str(i), # 添加解码器块到容器内
                 DecoderBlock(key_size, query_size, value_size, num_hiddens,
                              norm_shape, ffn_num_input, ffn_num_hiddens,
                              num_heads, dropout, i))
@@ -2202,6 +2204,7 @@ class TransformerDecoder(AttentionDecoder):
         enc_valid_lens: 编码器有效长度
         返回：状态元组 [enc_outputs, enc_valid_lens, [None]*num_layers]
         """
+        # [None]*num_layers是将n层解码器块的 缓存状态列表都先初始化为None
         return [enc_outputs, enc_valid_lens, [None] * self.num_layers]
 
     def forward(self, X, state):
@@ -2211,16 +2214,19 @@ class TransformerDecoder(AttentionDecoder):
         返回：输出概率分布及更新后的state
         """
         # 嵌入层处理（乘以sqrt(dim)进行缩放）
+        # 位置编码值在-1和1之间，因此嵌入值乘以嵌入维度的平方根进行缩放
+        # 然后再.pos_encoding()与位置编码相加
         X = self.pos_encoding(self.embedding(X) * math.sqrt(self.num_hiddens))
 
         # 存储注意力权重（用于可视化）
         self._attention_weights = [[None] * len(self.blks) for _ in range (2)]
         for i, blk in enumerate(self.blks): # 逐层处理
-            X, state = blk(X, state)
-            # # 存储自注意力权重：解码器自注意力权重
+            # state: [编码器输出，编码器有效长度，各层缓存状态列表]
+            X, state = blk(X, state) # 当前层解码器块的输出：处理后的张量&更新后的state
+            # 自注意力权重：解码器自注意力权重
             self._attention_weights[0][
                 i] = blk.attention1.attention.attention_weights
-            # 存储：“编码器－解码器”自注意力权重
+            # “编码器－解码器”自注意力权重
             self._attention_weights[1][
                 i] = blk.attention2.attention.attention_weights
 
@@ -2229,7 +2235,10 @@ class TransformerDecoder(AttentionDecoder):
 
     @property
     def attention_weights(self):
-        """获取注意力权重"""
+        """获取注意力权重
+        [0] 自注意力权重：解码器自注意力权重
+        [1] “编码器－解码器”自注意力权重
+        """
         return self._attention_weights
 
 
