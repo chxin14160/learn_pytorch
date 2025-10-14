@@ -707,6 +707,7 @@ print(f"交叉注意力：\n{dec_inter_attention_weights.shape}")
 
 # Plusonetoincludethebeginning-of-sequencetoken
 # 可视化解码器自注意力热图（包含起始符<BOS>）
+# 分词：translation.split() 将字符串分割为单词列表
 common.show_heatmaps(
     dec_self_attention_weights[:, :, :, :len(translation.split()) + 1], # +1包含起始符
     xlabel='Key positions', ylabel='Query positions',
