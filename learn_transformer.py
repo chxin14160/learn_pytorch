@@ -410,7 +410,7 @@ def learn_MultiHeadAttention():
 # learn_MultiHeadAttention()
 
 
-def Self_attention_and_position_encoding():
+def learn_attention_and_position_encoding():
     ''' 自注意力和位置编码 '''
     # 自注意力（qkv皆为同一序列）
     num_hiddens, num_heads = 100, 5 # 隐藏层维度，注意力头数
@@ -479,250 +479,249 @@ def Self_attention_and_position_encoding():
                          ylabel='Row (position)',              # y轴：序列位置
                          figsize=(3.5, 4),
                          cmap='Blues') # 蓝色系配色
-# Self_attention_and_position_encoding()
+# learn_attention_and_position_encoding()
 
 
-def test_PositionWise_FFN():
-    ''' 测试：基于位置的前馈网络
-    (对每个输入的x都独立应用相同的线性+激活+线性) '''
-    # 创建FFN实例：输入维度4，隐藏层8，输出维度8（实际常用隐藏层维度远大于输入/输出）
-    # 注：此处隐藏层维度设为4仅为示例，实际常设为2048等大值
-    ffn = common.PositionWiseFFN(4, 4, 8)
-    ffn.eval() # 设置为评估模式（关闭dropout等训练专用层）
+def learn_testTransformer():
+    '''学习：transformer'''
+    def test_PositionWise_FFN():
+        ''' 测试：基于位置的前馈网络
+        (对每个输入的x都独立应用相同的线性+激活+线性) '''
+        # 创建FFN实例：输入维度4，隐藏层8，输出维度8（实际常用隐藏层维度远大于输入/输出）
+        # 注：此处隐藏层维度设为4仅为示例，实际常设为2048等大值
+        ffn = common.PositionWiseFFN(4, 4, 8)
+        ffn.eval() # 设置为评估模式（关闭dropout等训练专用层）
 
-    # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
-    input_tensor = torch.ones((2, 3, 4))  # 全1张量用于测试
-    output = ffn(input_tensor)      # 执行前向传播
-    first_sample_output = output[0] # 获取第一个样本的所有位置输出（形状：3个位置 × 8维输出）
-    print("输入形状:", input_tensor.shape)  # torch.Size([2, 3, 4])
-    print("输出形状:", output.shape)        # torch.Size([2, 3, 8])
-    print("首样本输出:\n", first_sample_output)
-# test_PositionWise_FFN()
+        # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
+        input_tensor = torch.ones((2, 3, 4))  # 全1张量用于测试
+        output = ffn(input_tensor)      # 执行前向传播
+        first_sample_output = output[0] # 获取第一个样本的所有位置输出（形状：3个位置 × 8维输出）
+        print("输入形状:", input_tensor.shape)  # torch.Size([2, 3, 4])
+        print("输出形状:", output.shape)        # torch.Size([2, 3, 8])
+        print("首样本输出:\n", first_sample_output)
+    # test_PositionWise_FFN()
 
-def test_Add_and_Norm():
-    ''' 测试：残差连接和层归一化 模块
-    残差输入x经过随机失活后，与子层输出y相加，
-    相加后再经过层归一化(样本内所有特征经过归一化，即每个学生的所有科目成绩归一化)'''
-    ln = nn.LayerNorm(2)    # 创建【层】归一化对象（对每个样本的所有特征归一化）
-    bn = nn.BatchNorm1d(2)  # 创建【批】归一化对象（对每个特征跨样本归一化）
+    def test_Add_and_Norm():
+        ''' 测试：残差连接和层归一化 模块
+        残差输入x经过随机失活后，与子层输出y相加，
+        相加后再经过层归一化(样本内所有特征经过归一化，即每个学生的所有科目成绩归一化)'''
+        ln = nn.LayerNorm(2)    # 创建【层】归一化对象（对每个样本的所有特征归一化）
+        bn = nn.BatchNorm1d(2)  # 创建【批】归一化对象（对每个特征跨样本归一化）
 
-    # 创建输入数据：2个样本，每个样本2个特征
-    X = torch.tensor([[1, 2], [2, 3]], dtype=torch.float32)
-    print("在训练模式下计算X的均值和方差:\n")
-    # 层归一化计算（每个样本独立归一化）
-    print('layer norm:', ln(X))  # 每个样本的均值和方差独立计算
-    # 批归一化计算（跨样本归一化）
-    print('batch norm:', bn(X))  # 所有样本的同一特征共享均值和方差
+        # 创建输入数据：2个样本，每个样本2个特征
+        X = torch.tensor([[1, 2], [2, 3]], dtype=torch.float32)
+        print("在训练模式下计算X的均值和方差:\n")
+        # 层归一化计算（每个样本独立归一化）
+        print('layer norm:', ln(X))  # 每个样本的均值和方差独立计算
+        # 批归一化计算（跨样本归一化）
+        print('batch norm:', bn(X))  # 所有样本的同一特征共享均值和方差
 
-    # AddNorm模块使用示例
-    # 创建AddNorm实例：输入张量最后维度为4，Dropout概率0.5
-    add_norm = common.AddNorm([3, 4], 0.5)
-    add_norm.eval() # 切换至评估模式（关闭Dropout，BatchNorm使用移动平均）
+        # AddNorm模块使用示例
+        # 创建AddNorm实例：输入张量最后维度为4，Dropout概率0.5
+        add_norm = common.AddNorm([3, 4], 0.5)
+        add_norm.eval() # 切换至评估模式（关闭Dropout，BatchNorm使用移动平均）
 
-    # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
-    input1 = torch.ones((2, 3, 4))
-    input2 = torch.ones((2, 3, 4))  # 残差连接输入
-    output = add_norm(input1, input2) #前向传播
-    print("输出形状验证（应与输入相同）\n"
-          "输出形状:", output.shape)  # torch.Size([2, 3, 4])
-# test_Add_and_Norm()
+        # 创建输入数据：2个样本，每个样本3个位置，每个位置4维特征
+        input1 = torch.ones((2, 3, 4))
+        input2 = torch.ones((2, 3, 4))  # 残差连接输入
+        output = add_norm(input1, input2) #前向传播
+        print("输出形状验证（应与输入相同）\n"
+              "输出形状:", output.shape)  # torch.Size([2, 3, 4])
+    # test_Add_and_Norm()
 
 
 
-def test_transformer_encoder():
-    ''' 测试：transformer的编码器块及编码器 '''
-    # 测试代码（验证维度变换）
-    # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
-    X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
-    valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+    def test_transformer_encoder():
+        ''' 测试：transformer的编码器块及编码器 '''
+        # 测试代码（验证维度变换）
+        # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
+        X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+        valid_lens = torch.tensor([3, 2]) # 有效长度掩码
 
-    # 创建编码器块
-    encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
-    encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
-    output = encoder_blk(X, valid_lens)
-    print(f"编码器块输出形状：{output.shape}")
+        # 创建编码器块
+        encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
+        encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+        output = encoder_blk(X, valid_lens)
+        print(f"编码器块输出形状：{output.shape}")
 
-    # 创建完整编码器
+        # 创建完整编码器
+        encoder = common.TransformerEncoder(
+            200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
+        encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
+        output = encoder(torch.ones((2, 100), dtype=torch.long), valid_lens)
+        print(f"编码器输出形状：{output.shape}")
+    # test_transformer_encoder()
+
+
+    def test_transformer_encoder():
+        ''' 测试：transformer的解码器块 '''
+        # 创建编码器块
+        encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
+        encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+
+        # 创建解码器块
+        decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
+        decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
+
+        # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
+        X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
+        valid_lens = torch.tensor([3, 2]) # 有效长度掩码
+
+        state = [encoder_blk(X, valid_lens), valid_lens, [None]] # 构建解码器状态
+        output = decoder_blk(X, state) # 前向传播
+        print(f"解码器块输出，第一个批次的形状：{output[0].shape}") # torch.Size([2, 100, 24])
+    # test_transformer_encoder()
+
+
+    # 配置超参数
+    num_hiddens = 32    # 隐藏层维度（Transformer特征维度）
+    num_layers  = 2     # 编码器/解码器堆叠层数
+    dropout     = 0.1   # 随机失活概率（防止过拟合）
+    batch_size  = 64    # 训练批次大小
+    num_steps   = 10    # 序列最大长度（防止过长序列）
+    lr          = 0.005 # 学习率（Adam优化器）
+    num_epochs  = 200   # 训练轮次
+    device = common.try_gpu()  # 自动选择GPU/CPU
+
+    # 前馈网络参数
+    ffn_num_input   = 32  # 前馈网络输入维度（等于num_hiddens）
+    ffn_num_hiddens = 64  # 前馈网络中间层维度（通常为4倍输入维度）
+    num_heads       = 4   # 多头注意力头数
+
+    # 注意力机制参数
+    key_size = query_size = value_size = 32  # K/Q/V向量维度
+    norm_shape = [32]  # 层归一化维度（与num_hiddens一致）
+
+    # 加载机器翻译数据集（中英翻译示例）
+    # 返回：数据迭代器、源语言词汇表、目标语言词汇表
+    train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
+
+    # 构建Transformer编码器
     encoder = common.TransformerEncoder(
-        200, 24, 24, 24, 24, [100, 24], 24, 48, 8, 2, 0.5)
-    encoder.eval() # 设置为评估模式（关闭dropout等训练专用层）
-    output = encoder(torch.ones((2, 100), dtype=torch.long), valid_lens)
-    print(f"编码器输出形状：{output.shape}")
-# test_transformer_encoder()
-
-
-def test_transformer_encoder():
-    ''' 测试：transformer的解码器块 '''
-    # 创建编码器块
-    encoder_blk = common.EncoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5)
-    encoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
-
-    # 创建解码器块
-    decoder_blk = common.DecoderBlock(24, 24, 24, 24, [100, 24], 24, 48, 8, 0.5, 0)
-    decoder_blk.eval() # 设置为评估模式（关闭dropout等训练专用层）
-
-    # 同时处理2个独立序列，序列包含100个时间步，每个时间步有24个特征
-    X = torch.ones((2, 100, 24)) # 模拟输入 [batch_size=2, seq_length=100, dim=24]
-    valid_lens = torch.tensor([3, 2]) # 有效长度掩码
-
-    state = [encoder_blk(X, valid_lens), valid_lens, [None]] # 构建解码器状态
-    output = decoder_blk(X, state) # 前向传播
-    print(f"解码器块输出，第一个批次的形状：{output[0].shape}") # torch.Size([2, 100, 24])
-# test_transformer_encoder()
-
-
-# 配置超参数
-num_hiddens = 32    # 隐藏层维度（Transformer特征维度）
-num_layers  = 2     # 编码器/解码器堆叠层数
-dropout     = 0.1   # 随机失活概率（防止过拟合）
-batch_size  = 64    # 训练批次大小
-num_steps   = 10    # 序列最大长度（防止过长序列）
-lr          = 0.005 # 学习率（Adam优化器）
-num_epochs  = 200   # 训练轮次
-device = common.try_gpu()  # 自动选择GPU/CPU
-
-# 前馈网络参数
-ffn_num_input   = 32  # 前馈网络输入维度（等于num_hiddens）
-ffn_num_hiddens = 64  # 前馈网络中间层维度（通常为4倍输入维度）
-num_heads       = 4   # 多头注意力头数
-
-# 注意力机制参数
-key_size = query_size = value_size = 32  # K/Q/V向量维度
-norm_shape = [32]  # 层归一化维度（与num_hiddens一致）
-
-# 加载机器翻译数据集（中英翻译示例）
-# 返回：数据迭代器、源语言词汇表、目标语言词汇表
-train_iter, src_vocab, tgt_vocab = common.load_data_nmt(downloader, batch_size, num_steps)
-
-# 构建Transformer编码器
-encoder = common.TransformerEncoder(
-    vocab_size=len(src_vocab),       # 源语言词汇表大小
-    key_size=key_size,               # 键向量维度
-    query_size=query_size,           # 查询向量维度
-    value_size=value_size,           # 值向量维度
-    num_hiddens=num_hiddens,         # 隐藏层维度
-    norm_shape=norm_shape,           # 层归一化形状
-    ffn_num_input=ffn_num_input,     # 前馈网络输入维度
-    ffn_num_hiddens=ffn_num_hiddens, # 前馈网络中间层维度
-    num_heads=num_heads,             # 多头注意力头数
-    num_layers=num_layers,           # 编码器层数
-    dropout=dropout                  # 随机失活概率
-)
-
-# 构建Transformer解码器
-decoder = common.TransformerDecoder(
-    vocab_size=len(tgt_vocab),    # 目标语言词汇表大小
-    # 其他参数与编码器配置一致
-    key_size=key_size,
-    query_size=query_size,
-    value_size=value_size,
-    num_hiddens=num_hiddens,
-    norm_shape=norm_shape,
-    ffn_num_input=ffn_num_input,
-    ffn_num_hiddens=ffn_num_hiddens,
-    num_heads=num_heads,
-    num_layers=num_layers,
-    dropout=dropout
-)
-
-# 组合编码器-解码器架构
-net = common.EncoderDecoder(encoder, decoder)
-
-# 训练序列到序列模型
-# 模型，训练数据迭代器，学习率，训练轮次，目标语言词汇表（用于评估），训练设备
-common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
-
-
-# 英法对照测试集
-engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
-fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
-for eng, fra in zip(engs, fras): # 逐句进行机器翻译并评估
-    # 预测翻译结果（包含注意力权重序列）
-    translation, dec_attention_weight_seq = common.predict_seq2seq(
-        net,           # 训练好的seq2seq模型
-        eng,           # 待翻译的英文句子
-        src_vocab,     # 源语言词汇表
-        tgt_vocab,     # 目标语言词汇表
-        num_steps,     # 最大序列长度
-        device,        # 计算设备（GPU/CPU）
-        True           # 返回注意力权重
+        vocab_size=len(src_vocab),       # 源语言词汇表大小
+        key_size=key_size,               # 键向量维度
+        query_size=query_size,           # 查询向量维度
+        value_size=value_size,           # 值向量维度
+        num_hiddens=num_hiddens,         # 隐藏层维度
+        norm_shape=norm_shape,           # 层归一化形状
+        ffn_num_input=ffn_num_input,     # 前馈网络输入维度
+        ffn_num_hiddens=ffn_num_hiddens, # 前馈网络中间层维度
+        num_heads=num_heads,             # 多头注意力头数
+        num_layers=num_layers,           # 编码器层数
+        dropout=dropout                  # 随机失活概率
     )
-    # 计算BLEU-2分数（双语评估替手）
-    print(f'{eng} => {translation}, ',
-          f'bleu {common.bleu(translation, fra, k=2):.3f}')
 
-# 提取编码器各层注意力权重
-enc_attention_weights = torch.cat(net.encoder.attention_weights, 0)  # 拼接所有层
-print(f"（原来的）编码器注意力权重：{enc_attention_weights.shape}")
-enc_attention_weights = enc_attention_weights.reshape((
-    num_layers,    # 2层编码器
-    num_heads,     # 4个注意力头
-    -1,            # 自动计算维度（源序列长度）
-    num_steps      # 目标序列长度
-))
-print(f"（重塑后）编码器注意力权重：{enc_attention_weights.shape}")
+    # 构建Transformer解码器
+    decoder = common.TransformerDecoder(
+        vocab_size=len(tgt_vocab),    # 目标语言词汇表大小
+        # 其他参数与编码器配置一致
+        key_size=key_size,
+        query_size=query_size,
+        value_size=value_size,
+        num_hiddens=num_hiddens,
+        norm_shape=norm_shape,
+        ffn_num_input=ffn_num_input,
+        ffn_num_hiddens=ffn_num_hiddens,
+        num_heads=num_heads,
+        num_layers=num_layers,
+        dropout=dropout
+    )
 
-# 可视化编码器自注意力热图
-common.show_heatmaps(
-    enc_attention_weights.cpu(),    # 转为CPU张量[2行(编码器层数)，4列(注意力头数)，Q，K]
-    xlabel='Key positions',         # 横轴：键位置
-    ylabel='Query positions',       # 纵轴：查询位置
-    titles=['Head %d' % i for i in range(1, 5)], # 4个头的标题
-    figsize=(7, 3.5)                # 图像尺寸
-)
+    # 组合编码器-解码器架构
+    net = common.EncoderDecoder(encoder, decoder)
 
-# 解码器注意力权重处理：将多维度注意力权重转换为可视化友好的5D张量
-# 二维列表构建：按 时间步、层、注意力类型、头展开权重
-dec_attention_weights_2d = [head[0].tolist()    # 将每个头的权重矩阵 转换为Python列表
-                            for step in dec_attention_weight_seq # 遍历时间步(每个时间步对应一个解码器输出位置)
-                            for attn in step    # 遍历解码器层（attn：每层的注意力数据）(每个时间步包含所有层的注意力数据)
-                            for blk  in attn    # 遍历注意力类型（blk：自注意力/交叉注意力）
-                            for head in blk]    # 遍历注意力头(每个注意力类型下的所有头)
-# 此时数据结构：二维列表 [总样本数, 序列长度]，每个元素是某个头在某个位置上的权重矩阵
+    # 训练序列到序列模型
+    # 模型，训练数据迭代器，学习率，训练轮次，目标语言词汇表（用于评估），训练设备
+    common.train_seq2seq(net, train_iter, lr, num_epochs, tgt_vocab, device)
 
-# 转换为DataFrame并填充缺失值
-# pd.DataFrame()从二维列表到 DataFrame，为后续的fillna() 提供结构化操作接口
-# 缺失值处理：fillna(0.0)将 缺失值NaN 填充为 0
-# DataFrame.values 转换为 NumPy数组：跨库数据桥接
-# torch.tensor() 转换为 PyTorch 张量：适配深度学习框架
-dec_attention_weights_filled = torch.tensor(
-    pd.DataFrame(dec_attention_weights_2d)
-    .fillna(0.0)
-    .values) # 类型变化：DataFrame → NumPy数组 → 张量
 
-# 重塑为5维张量：[时间步, 2种类型, 层数, 头数, 序列长度]
-# 类型维度：0=自注意力，1=交叉注意力
-dec_attention_weights = (dec_attention_weights_filled
-                         .reshape((-1, 2, num_layers, num_heads, num_steps)))
+    # 英法对照测试集
+    engs = ['go .', "i lost .", 'he\'s calm .', 'i\'m home .']
+    fras = ['va !', 'j\'ai perdu .', 'il est calme .', 'je suis chez moi .']
+    for eng, fra in zip(engs, fras): # 逐句进行机器翻译并评估
+        # 预测翻译结果（包含注意力权重序列）
+        translation, dec_attention_weight_seq = common.predict_seq2seq(
+            net,           # 训练好的seq2seq模型
+            eng,           # 待翻译的英文句子
+            src_vocab,     # 源语言词汇表
+            tgt_vocab,     # 目标语言词汇表
+            num_steps,     # 最大序列长度
+            device,        # 计算设备（GPU/CPU）
+            True           # 返回注意力权重
+        )
+        # 计算BLEU-2分数（双语评估替手）
+        print(f'{eng} => {translation}, ',
+              f'bleu {common.bleu(translation, fra, k=2):.3f}')
 
-# 分离两种注意力类型
-# 通过维度置换调整张量存储顺序，便于按注意力类型切片
-# permute原理：将原维度索引[0,1,2,3,4]映射到新顺序[1,2,3,0,4]，实现注意力类型的分离
-# 新维度：[类型, 层, 头, 时间步, 序列长度]
-dec_self_attention_weights, dec_inter_attention_weights = \
-    dec_attention_weights.permute(1, 2, 3, 0, 4) # 调整维度顺序
-# 打印维度确认
-print(f"自注意力：\n{dec_self_attention_weights.shape}")
-print(f"交叉注意力：\n{dec_inter_attention_weights.shape}")
+    # 提取编码器各层注意力权重
+    enc_attention_weights = torch.cat(net.encoder.attention_weights, 0)  # 拼接所有层
+    print(f"（原来的）编码器注意力权重：{enc_attention_weights.shape}")
+    enc_attention_weights = enc_attention_weights.reshape((
+        num_layers,    # 2层编码器
+        num_heads,     # 4个注意力头
+        -1,            # 自动计算维度（源序列长度）
+        num_steps      # 目标序列长度
+    ))
+    print(f"（重塑后）编码器注意力权重：{enc_attention_weights.shape}")
 
-# Plusonetoincludethebeginning-of-sequencetoken
-# 可视化解码器自注意力热图（包含起始符<BOS>）
-# 分词：translation.split() 将字符串分割为单词列表
-common.show_heatmaps(
-    dec_self_attention_weights[:, :, :, :len(translation.split()) + 1], # +1包含起始符
-    xlabel='Key positions', ylabel='Query positions',
-    titles=['Head %d' % i for i in range(1, 5)], figsize=(7, 3.5))
+    # 可视化编码器自注意力热图
+    common.show_heatmaps(
+        enc_attention_weights.cpu(),    # 转为CPU张量[2行(编码器层数)，4列(注意力头数)，Q，K]
+        xlabel='Key positions',         # 横轴：键位置
+        ylabel='Query positions',       # 纵轴：查询位置
+        titles=['Head %d' % i for i in range(1, 5)], # 4个头的标题
+        figsize=(7, 3.5)                # 图像尺寸
+    )
 
-# 可视化解码器交叉注意力热图（编码器-解码器）
-common.show_heatmaps(
-    dec_inter_attention_weights, xlabel='Key positions',
-    ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
-    figsize=(7, 3.5))
-# 交叉注意力核心：展示解码器如何关注编码器输出的不同位置
+    # 解码器注意力权重处理：将多维度注意力权重转换为可视化友好的5D张量
+    # 二维列表构建：按 时间步、层、注意力类型、头展开权重
+    dec_attention_weights_2d = [head[0].tolist()    # 将每个头的权重矩阵 转换为Python列表
+                                for step in dec_attention_weight_seq # 遍历时间步(每个时间步对应一个解码器输出位置)
+                                for attn in step    # 遍历解码器层（attn：每层的注意力数据）(每个时间步包含所有层的注意力数据)
+                                for blk  in attn    # 遍历注意力类型（blk：自注意力/交叉注意力）
+                                for head in blk]    # 遍历注意力头(每个注意力类型下的所有头)
+    # 此时数据结构：二维列表 [总样本数, 序列长度]，每个元素是某个头在某个位置上的权重矩阵
+
+    # 转换为DataFrame并填充缺失值
+    # pd.DataFrame()从二维列表到 DataFrame，为后续的fillna() 提供结构化操作接口
+    # 缺失值处理：fillna(0.0)将 缺失值NaN 填充为 0
+    # DataFrame.values 转换为 NumPy数组：跨库数据桥接
+    # torch.tensor() 转换为 PyTorch 张量：适配深度学习框架
+    dec_attention_weights_filled = torch.tensor(
+        pd.DataFrame(dec_attention_weights_2d)
+        .fillna(0.0)
+        .values) # 类型变化：DataFrame → NumPy数组 → 张量
+
+    # 重塑为5维张量：[时间步, 2种类型, 层数, 头数, 序列长度]
+    # 类型维度：0=自注意力，1=交叉注意力
+    dec_attention_weights = (dec_attention_weights_filled
+                             .reshape((-1, 2, num_layers, num_heads, num_steps)))
+
+    # 分离两种注意力类型
+    # 通过维度置换调整张量存储顺序，便于按注意力类型切片
+    # permute原理：将原维度索引[0,1,2,3,4]映射到新顺序[1,2,3,0,4]，实现注意力类型的分离
+    # 新维度：[类型, 层, 头, 时间步, 序列长度]
+    dec_self_attention_weights, dec_inter_attention_weights = \
+        dec_attention_weights.permute(1, 2, 3, 0, 4) # 调整维度顺序
+    # 打印维度确认
+    print(f"自注意力：\n{dec_self_attention_weights.shape}")
+    print(f"交叉注意力：\n{dec_inter_attention_weights.shape}")
+
+    # Plusonetoincludethebeginning-of-sequencetoken
+    # 可视化解码器自注意力热图（包含起始符<BOS>）
+    # 分词：translation.split() 将字符串分割为单词列表
+    common.show_heatmaps(
+        dec_self_attention_weights[:, :, :, :len(translation.split()) + 1], # +1包含起始符
+        xlabel='Key positions', ylabel='Query positions',
+        titles=['Head %d' % i for i in range(1, 5)], figsize=(7, 3.5))
+
+    # 可视化解码器交叉注意力热图（编码器-解码器）
+    common.show_heatmaps(
+        dec_inter_attention_weights, xlabel='Key positions',
+        ylabel='Query positions', titles=['Head %d' % i for i in range(1, 5)],
+        figsize=(7, 3.5))
+    # 交叉注意力核心：展示解码器如何关注编码器输出的不同位置
+learn_testTransformer()
 
 
 plt.pause(4444)  # 间隔的秒数： 4s
-
-
-
-
