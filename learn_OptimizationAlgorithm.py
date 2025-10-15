@@ -40,10 +40,11 @@ def visual_risk_functions_comparison():
     # 添加关键点注释
     common.annotate('min of\nempirical risk',  (1.0, -1.2), (0.7, -0.87), ax=ax1) # 经验风险最小值点
     common.annotate('min of risk', (1.1, -1.05), (1.05, -0.5), ax=ax1,) # 理论风险最小值点
-visual_risk_functions_comparison()
+# visual_risk_functions_comparison()
 
 def test_local_minimum():
     ''' 局部最小值 '''
+    # 绘制对比图：局部最小值 & 全局最小值
     x = torch.arange(-1.0, 2.0, 0.01)
     # 使用前面的风险函数 f(x)，对比两种风险时范围是0.5~1.5，现在看最小值的范围的-1.0~2.0
     fig2, ax2 = common.plot(x, [f(x), ], 'x', 'f(x)',
@@ -52,7 +53,7 @@ def test_local_minimum():
                             show_internally = False)
     common.annotate('local minimum', (-0.3, -0.25), (-0.37, 1.5), ax=ax2)
     common.annotate('global minimum', (1.1, -0.95), (0.9, 0.8), ax=ax2)
-test_local_minimum()
+# test_local_minimum()
 
 #     ''' 鞍点 '''
 # 绘制鞍点示例图
