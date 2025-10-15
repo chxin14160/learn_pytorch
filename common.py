@@ -1,5 +1,6 @@
 import time
 import numpy as np
+from sympy import false
 # from IPython import display
 from torch.utils.data import DataLoader, TensorDataset
 import torch
@@ -90,10 +91,42 @@ def synthetic_data(w, b, num_examples):  # @save
     return X, y.reshape((-1, 1))  # 返回特征矩阵X和标签向量y, y.reshape((-1, 1)) 确保y是列向量（形状为 (num_examples, 1)）
 
 
+def annotate(text, xy, xytext, ax=None, fontsize=10, arrowprops=None):
+    '''在图中添加带箭头的注释（增强版）
+    text        : 注释文本
+    xy          : 被注释点坐标 (x,y)
+    xytext      : 文本位置坐标 (x,y)
+    ax          : 目标坐标轴对象，默认为当前轴
+    fontsize    : 文本字体大小
+    arrowprops  : 箭头属性字典
+    '''
+    if arrowprops is None: # 默认箭头样式设置
+        # 箭头样式，线宽，颜色
+        arrowprops = dict(arrowstyle='->', linewidth=2, color='red',
+                          shrinkA=0, # 箭头起点不收缩
+                          shrinkB=0, # 箭头终点不收缩
+                          connectionstyle="arc3,rad=0.3") # 带弧度的连接线
+    ax = ax or plt.gca() # 获取或创建坐标轴对象
+
+    # 坐标安全保护：确保注释点不超出图形范围
+    xlim = ax.get_xlim() # 获取x轴范围
+    ylim = ax.get_ylim() # 获取y轴范围
+    xy = (np.clip(xy[0], *xlim), np.clip(xy[1], *ylim)) # 裁剪被注释点坐标
+    xytext = (np.clip(xytext[0], *xlim), np.clip(xytext[1], *ylim)) # 裁剪文本位置坐标
+
+    # 添加注释到图形，bbpx注释文本的背景框
+    ax.annotate(text, xy=xy, xytext=xytext,
+                fontsize=fontsize,
+                ha='center', va='center',   # 水平居中，垂直居中
+                arrowprops=arrowprops,      # 箭头样式
+                bbox=dict(boxstyle="round", # 圆角边框
+                          alpha=0.1,        # 背景透明度
+                          color="cyan"))    # 背景颜色
+
 # 封装了 Matplotlib 轴属性的常用设置
 def set_axes(axes, xlabel=None, ylabel=None, xlim=None, ylim=None,
-             xscale='linear', yscale='linear', legend=None):
-    """设置绘图的轴属性"""
+             xscale='linear', yscale='linear', legend=None, title=None):
+    """统一设置绘图的轴属性"""
     if xlabel: axes.set_xlabel(xlabel)  # 设置x轴标签（如果提供）
     if ylabel: axes.set_ylabel(ylabel)  # 设置y轴标签（如果提供）
     if xlim: axes.set_xlim(xlim)        # 设置x轴范围（如 [0, 10]）（如果提供）
@@ -101,12 +134,64 @@ def set_axes(axes, xlabel=None, ylabel=None, xlim=None, ylim=None,
     axes.set_xscale(xscale)         # 设置x轴刻度类型（线性linear或对数log）
     axes.set_yscale(yscale)         # 设置y轴刻度类型（线性linear或对数log）
     if legend: axes.legend(legend)  # 添加图例文本列表（如 ['train', 'test']）（如果提供）
+    if title: axes.set_title(title) # 图标标题
     axes.grid(True)                 # 显示背景网格线，提升可读性
 
 # 绘图函数
 def plot(X, Y=None, xlabel=None, ylabel=None, legend=None,
          xlim=None, ylim=None, xscale='linear', yscale='linear',
-         fmts=('-', 'm--', 'g-.', 'r:', 'c-.', 'y-', 'k:'), figsize=(5, 2.5), axes=None):
+         fmts=('-', 'm--', 'g-.', 'r:', 'c-.', 'y-', 'k:'),
+         figsize=(5, 2.5), axes=None, title=None, show_internally = True):
+    """绘制数据点
+    axes: 外部坐标轴对象（可选）
+    show_internally: 是否立即显示图形
+    返回：fig, axes: 图形和坐标轴对象
+    """
+    if legend is None: legend = [] # 默认图例为空列表（避免后续判断报错）
+
+    # # 创建画布（如果未提供外部axes）
+    # plt.figure(figsize=figsize)
+    # axes = axes if axes is not None else plt.gca()  # 获取当前轴
+
+    # 创建或获取图形对象
+    if axes is None:
+        fig, axes = plt.subplots(figsize=figsize) # 创建图形和坐标轴
+    else:
+        fig = axes.figure
+
+    # 如果X有一个轴，输出True。判断输入数据是否为一维（列表或一维数组）
+    def has_one_axis(X):
+        return (hasattr(X, "ndim") and X.ndim == 1 or isinstance(X, list)
+                and not hasattr(X[0], "__len__"))
+
+    # 标准化X和Y的形状：确保X和Y都是列表的列表（支持多条曲线）
+    if has_one_axis(X):
+        X = [X]  # 将一维X转换为二维（单条曲线）
+    if Y is None: # 如果未提供Y，则X是Y的值，X轴为索引（如 plot(y)）
+        X, Y = [[]] * len(X), X
+    elif has_one_axis(Y):
+        Y = [Y] # 将一维Y转换为二维
+    if len(X) != len(Y): # 如果X和Y数量不匹配，复制X以匹配Y的数量
+        X = X * len(Y)
+
+    axes.clear() # 清空当前轴（避免重叠绘图）
+    for i, (x, y) in enumerate(zip(X, Y)):
+        if len(x):
+            axes.plot(x, y, fmts[i % len(fmts)]) # 如果提供了x和y，绘制xy曲线
+        else:
+            axes.plot(y, fmts[i % len(fmts)]) # 如果未提供x，绘制y关于索引的曲线（如 plot(y)）
+
+    set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend, title) # 设置轴属性
+    # 自动调整布局并显示图像
+    plt.tight_layout()  # 自动调整子图参数，使之填充整个图像区域，防止标签溢出
+    if show_internally: plt.show()
+    return fig, axes
+
+# 绘图函数
+def plot_old(X, Y=None, xlabel=None, ylabel=None, legend=None,
+         xlim=None, ylim=None, xscale='linear', yscale='linear',
+         fmts=('-', 'm--', 'g-.', 'r:', 'c-.', 'y-', 'k:'),
+         figsize=(5, 2.5), axes=None, title=None):
     """绘制数据点"""
     if legend is None: legend = [] # 默认图例为空列表（避免后续判断报错）
     # 创建画布（如果未提供外部axes）
@@ -133,7 +218,7 @@ def plot(X, Y=None, xlabel=None, ylabel=None, legend=None,
         if len(x): axes.plot(x, y, fmt) # 如果提供了x和y，绘制xy曲线
         else: axes.plot(y, fmt) # 如果未提供x，绘制y关于索引的曲线（如 plot(y)）
 
-    set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend) # 设置轴属性
+    set_axes(axes, xlabel, ylabel, xlim, ylim, xscale, yscale, legend, title) # 设置轴属性
     # 自动调整布局并显示图像
     plt.tight_layout()  # 自动调整子图参数，使之填充整个图像区域，防止标签溢出
     plt.show()
