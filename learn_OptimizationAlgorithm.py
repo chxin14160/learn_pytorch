@@ -113,6 +113,30 @@ def learn_optimization_and_deep_learning():
 # learn_optimization_and_deep_learning()
 
 
+def learn_convexity():
+    '''凸性，演示：凸函数与非凸函数，局部极小值是全局极小值'''
+    # 定义三个函数
+    f = lambda x: 0.5 * x**2            # 凸函数  （典型，开口向上的抛物线）
+    g = lambda x: torch.cos(np.pi * x)  # 非凸函数（余弦波）
+    h = lambda x: torch.exp(0.5 * x)    # 凸函数  （指数增长）
+
+    # 生成数据
+    x = torch.arange(-2, 2, 0.01)
+    segment = torch.tensor([-1.5, 1]) # 用于绘制线段的两个端点
+
+    # d2l.use_svg_display()
+    _, axes = plt.subplots(1, 3, figsize=(9, 3))
+
+    for ax, func, name in zip(axes, [f, g, h],
+                              ['f(x) = 0.5x²', 'g(x) = cos(πx)', 'h(x) = exp(0.5x)']):
+        _, ax = common.plot([x, segment], [func(x), func(segment)], axes=ax,
+                            title = name, show_internally=False)
+
+
+    f = lambda x: (x - 1) ** 2
+    common.plot([x, segment], [f(x), f(segment)], 'x', 'f(x)')
+# learn_convexity()
+
 
 
 
