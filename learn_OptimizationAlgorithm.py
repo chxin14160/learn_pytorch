@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import common
 
 
-#     ''' 优化的目标 '''
+
 def f(x):
     '''风险函数
     理论风险值：x * cos(πx)
@@ -55,36 +55,54 @@ def test_local_minimum():
     common.annotate('global minimum', (1.1, -0.95), (0.9, 0.8), ax=ax2)
 # test_local_minimum()
 
-#     ''' 鞍点 '''
-# 绘制鞍点示例图
-x = torch.arange(-2.0, 2.0, 0.01) # 扩展参数范围
-fig3, ax3 = common.plot(x, [x**3], 'x', 'f(x)',
-                      xlim=(-2, 2), ylim=(-8, 8),
-                      figsize=(6, 4), title='Saddle Point Example',
-                        show_internally = False)
-common.annotate('saddle point', (0, -0.2), (-0.52, -5.0),
-                ax = ax3, fontsize = 12,
-                arrowprops = dict(arrowstyle='fancy', color='green')) # 鞍点注释
-# 添加参考线
-plt.axhline(y=0, color='k', linestyle='--', linewidth=0.8)  # 添加x轴虚线
-plt.axvline(x=0, color='k', linestyle='--', linewidth=0.8)  # 添加y轴虚线
+def visual_saddle_pnt():
+    ''' 可视化：鞍点 '''
+    # 绘制鞍点示例图
+    x = torch.arange(-2.0, 2.0, 0.01) # 扩展参数范围
+    fig3, ax3 = common.plot(x, [x**3], 'x', 'f(x)',
+                          xlim=(-2, 2), ylim=(-8, 8),
+                          figsize=(6, 4), title='Saddle Point Example',
+                            show_internally = False)
+    common.annotate('saddle point', (0, -0.2), (-0.52, -5.0),
+                    ax = ax3, fontsize = 12,
+                    arrowprops = dict(arrowstyle='fancy', color='green')) # 鞍点注释
+    # 添加参考线
+    plt.axhline(y=0, color='k', linestyle='--', linewidth=0.8)  # 添加x轴虚线
+    plt.axvline(x=0, color='k', linestyle='--', linewidth=0.8)  # 添加y轴虚线
 
 
-x, y = torch.meshgrid(
-    torch.linspace(-1.0, 1.0, 101), torch.linspace(-1.0, 1.0, 101))
-z = x**2 - y**2
+    # 创建二维网格：在[-1,1]区间生成101x101的网格点坐标矩阵
+    # torch.linspace创建等差数列，torch.meshgrid将一维坐标扩展为二维网格
+    x, y = torch.meshgrid(
+        torch.linspace(-1.0, 1.0, 101),  # x坐标范围[-1,1]，101个点
+        torch.linspace(-1.0, 1.0, 101))   # y坐标范围[-1,1]，101个点
 
-# ax = common.plt.figure().add_subplot(111, projection='3d')
-# ax.plot_wireframe(x, y, z, **{'rstride': 10, 'cstride': 10})
-# ax.plot([0], [0], [0], 'rx')
-# ticks = [-1, 0, 1]
-# common.plt.xticks(ticks)
-# common.plt.yticks(ticks)
-# ax.set_zticks(ticks)
-# common.plt.xlabel('x')
-# common.plt.ylabel('y')
+    # 定义鞍点函数：z = x² - y²
+    # 该函数在(0,0)处Hessian矩阵特征值为(2, -2)，是典型的鞍点
+    z = x**2 - y**2
 
+    ax = plt.figure().add_subplot(111, projection='3d') # 创建三维坐标轴对象
 
+    # 绘制三维线框图
+    # plot_wireframe以线框形式绘制曲面
+    # 通过rstride/cstride控制行/列方向的网格密度（步长）
+    ax.plot_wireframe(x, y, z, **{'rstride': 10, 'cstride': 10})
+
+    # 红色叉号标记鞍点位置(0,0,0)，直观展示梯度消失点
+    ax.plot([0], [0], [0], 'rx') # 第一个列表表示x坐标，第二个y坐标，第三个z坐标
+
+    # 设置坐标轴刻度
+    ticks = [-1, 0, 1]      # 统一设置刻度为[-1,0,1]
+    plt.xticks(ticks)       # 设置x轴刻度
+    plt.yticks(ticks)       # 设置y轴刻度
+    ax.set_zticks(ticks)    # 设置z轴刻度
+
+    # 添加坐标轴标签
+    plt.xlabel('x')
+    plt.ylabel('y')
+    ax.set_zlabel('z')  # 补充z轴标签
+    # plt.savefig('saddle_point.png', dpi=300, bbox_inches='tight') # 保存图像到文件
+# visual_saddle_pnt()
 
 
 
