@@ -175,7 +175,29 @@ def visual_1d_gradient_descent():
 
 
 
+def f_2d(x1, x2):  # 目标函数 f(x) = x₁² + 2x₂²
+    return x1 ** 2 + 2 * x2 ** 2
 
+def f_2d_grad(x1, x2):  # 目标函数的梯度：[∂f/∂x1, ∂f/∂x2] = [2x1, 4x2]
+    return (2 * x1, 4 * x2)
+
+def gd_2d(x1, x2, s1, s2, f_grad):
+    """标准的梯度下降更新规则
+    x1, x2: 当前参数值
+    s1, s2: 状态变量（在此简单GD中未使用）
+    f_grad: 梯度计算函数
+    返回: 更新后的参数和状态 (new_x1, new_x2, 0, 0)
+    """
+    g1, g2 = f_grad(x1, x2) # 计算梯度
+    # 梯度下降更新：x ← x - η * ∇f(x)
+    new_x1 = x1 - eta * g1
+    new_x2 = x2 - eta * g2
+    return (new_x1, new_x2, 0, 0)  # 返回新参数，状态重置为0
+
+eta = 0.1 # 学习率
+# 执行梯度下降并可视化结果
+results = common.train_2d(gd_2d, f_grad=f_2d_grad)
+common.show_trace_2d(f_2d, results)
 
 
 
