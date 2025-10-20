@@ -138,6 +138,44 @@ def learn_convexity():
 # learn_convexity()
 
 
+def visual_1d_gradient_descent():
+    '''一维梯度下降，及对应可视化'''
+    def f(x):  # 目标函数 f(x) = x²
+        return x ** 2
+
+    def f_grad(x):  # 目标函数的梯度(导数) f'(x) = 2x
+        return 2 * x
+
+    def gd(eta, f_grad):
+        x = 10.0 # 初始值
+        results = [x]
+        for i in range(10): # 迭代10次
+            x -= eta * f_grad(x)
+            results.append(float(x))
+            print(f"epoch ：{i+1}，当前x={x:.7f}")
+        print(f'epoch 10, x: {x:f}')
+        return results
+
+    results = gd(0.2, f_grad) # 传入0.2的学习率(步长大小)，和对应导数(坡度)
+    common.show_trace(results, f) # 显示梯度下降轨迹
+    common.show_trace(gd(0.05, f_grad), f) # 学习率改为0.05，可视化梯度下降轨迹
+    common.show_trace(gd(1.1, f_grad), f) # 学习率改为1.1，可视化梯度下降轨迹
+
+
+    c = torch.tensor(0.15 * np.pi) # 预定义的常数 c = 0.15π ≈ 0.4712
+
+    def f(x):  # 目标函数 f(x) = x * cos(c * x)
+        return x * torch.cos(c * x)
+
+    def f_grad(x):  # 目标函数的梯度 f'(x) = cos(c*x) - c*x*sin(c*x)
+        return torch.cos(c * x) - c * x * torch.sin(c * x)
+
+    common.show_trace(gd(2, f_grad), f) # 学习率设为2
+# visual_1d_gradient_descent()
+
+
+
+
 
 
 
