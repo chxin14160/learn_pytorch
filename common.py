@@ -277,6 +277,72 @@ def show_trace(results, f):
         'x', 'f(x)',
         fmts=['-', '-o']) # 线型：实线表示函数，带圆点的实线表示迭代轨迹
 
+def train_2d(trainer, steps=20, f_grad=None):  #@save
+    """用定制的训练机优化2D目标函数
+    trainer : 训练函数，执行单步参数更新
+    steps   : 训练步数（迭代次数）
+    f_grad  : 梯度计算函数（可选）
+    返回: 包含所有迭代点(x1, x2)的列表
+    """
+    # s1和s2是稍后将使用的内部状态变量
+    # 初始化：从点(-5, -2)开始，s1和s2是为后续高级优化器预留的状态变量
+    x1, x2, s1, s2 = -5, -2, 0, 0
+    results = [(x1, x2)] # 存储轨迹点
+    for i in range(steps):
+        if f_grad: # 若有梯度函数，传入梯度进行计算
+            x1, x2, s1, s2 = trainer(x1, x2, s1, s2, f_grad)
+        else: # 否则直接使用训练器
+            x1, x2, s1, s2 = trainer(x1, x2, s1, s2)
+        results.append((x1, x2)) # 记录新位置
+    print(f'epoch {i + 1}, x1: {float(x1):f}, x2: {float(x2):f}')
+    return results
+
+def show_trace_2d(f, results):  #@save
+    """显示优化过程中2D变量的轨迹
+    f      : 目标函数，用于绘制等高线
+    results: 优化轨迹点列表 [(x1, x2), ...]
+    """
+    # 1. 绘制优化轨迹（橙色圆点连线）
+    ''' zip(*results)作用：进行数据转置
+    把 原始数据（列表的列表）：
+            [ (x1_1, x2_1),
+              (x1_2, x2_2),
+              ... ]
+    转换为 转置后：
+            [ (x1_1, x1_2, ...), 
+              (x2_1, x2_2, ...) ]
+    *results：将列表解包，相当于把 results的每个元素作为单独参数传递给 zip
+    zip     ：按位置重新组合元素
+    效果：
+        x1_coords = (-5, -4.0, -3.2, ...)   即 所有点的x坐标
+        x2_coords = (-2, -1.2, -0.72, ...)  即 所有点的y坐标
+    '''
+    x1_coords, x2_coords = zip(*results)  # 将[(x1,y1),(x2,y2)...]拆分为两个列表
+    plt.plot(x1_coords, x2_coords, '-o', color='#ff7f0e')
+
+    # 2. 创建网格用于绘制等高线
+    x1_range = torch.arange(-5.5, 1.0, 0.1)  # x1从-5.5到1.0，步长0.1
+    x2_range = torch.arange(-3.0, 1.0, 0.1)  # x2从-3.0到1.0，步长0.1
+    # 通过 torch.meshgrid()生成两个网格坐标矩阵，包含所有网格点的 (x1,x2) 坐标
+    x1_grid, x2_grid = torch.meshgrid(x1_range, x2_range, indexing='ij')
+
+    # 3. 计算网格点上目标函数值并绘制等高线
+    z = f(x1_grid, x2_grid)  # 计算每个网格点的函数值 (在每个网格点计算的函数值矩阵)
+    plt.contour(x1_grid, x2_grid, z, colors='#1f77b4') # 蓝色等高线
+    ''' 会绘制出一系列蓝色闭合曲线：
+    每条曲线表示函数值相等的点（等高线）
+    曲线越密集表示坡度越陡
+    中心的闭合圈对应最小值点（本例中为 (0,0)）
+    '''
+
+    # 4. 设置坐标轴标签
+    plt.xlabel('x1')
+    plt.ylabel('x2')
+    plt.title('2D Gradient Descent Trajectory')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.show()
+
+
 def load_array(data_arrays, batch_size, is_train=True):
     dataset = TensorDataset(*data_arrays)
     return DataLoader(dataset, batch_size, shuffle=is_train)
