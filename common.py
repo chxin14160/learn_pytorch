@@ -256,6 +256,26 @@ def plot_kernel_reg(x_test, y_truth, y_hat,
     # plt.tight_layout() # 调整布局防止标签被截断
     plt.show()
 
+def show_trace(results, f):
+    """
+    可视化梯度下降的轨迹（1D）
+    results: 列表，存储梯度下降过程中每次迭代的x值
+    f: 目标函数，接受x作为输入并返回函数值
+    """
+    # 确定绘图范围：取results中绝对值最大的x值，作为绘图边界
+    n = max(abs(min(results)), abs(max(results)))
+
+    # 生成平滑的函数曲线x坐标（从-n到n，步长0.01）
+    f_line = torch.arange(-n, n, 0.01)
+
+    # 绘制两个图形：
+    # 1、目标函数的完整曲线（f_line对应的f(x)）
+    # 2、梯度下降过程中各点的位置（results对应的f(x)）
+    plot([f_line, results], # x轴数据：函数曲线x值 + 迭代点x值
+        [[f(x) for x in f_line],      # 完整函数曲线y值
+         [f(x) for x in results]],    # 迭代点对应的y值
+        'x', 'f(x)',
+        fmts=['-', '-o']) # 线型：实线表示函数，带圆点的实线表示迭代轨迹
 
 def load_array(data_arrays, batch_size, is_train=True):
     dataset = TensorDataset(*data_arrays)
