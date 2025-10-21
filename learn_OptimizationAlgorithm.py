@@ -138,122 +138,138 @@ def learn_convexity():
 # learn_convexity()
 
 
-def visual_1d_gradient_descent():
-    '''一维梯度下降，及对应可视化'''
-    def f(x):  # 目标函数 f(x) = x²
-        return x ** 2
+def learn_gradient_descent():
+    '''梯度下降：一维、多元、牛顿法'''
+    def visual_1d_gradient_descent():
+        '''一维梯度下降，及对应可视化'''
+        def f(x):  # 目标函数 f(x) = x²
+            return x ** 2
 
-    def f_grad(x):  # 目标函数的梯度(导数) f'(x) = 2x
-        return 2 * x
+        def f_grad(x):  # 目标函数的梯度(导数) f'(x) = 2x
+            return 2 * x
 
-    def gd(eta, f_grad):
-        x = 10.0 # 初始值
-        results = [x]
-        for i in range(10): # 迭代10次
-            x -= eta * f_grad(x)
-            results.append(float(x))
-            print(f"epoch ：{i+1}，当前x={x:.7f}")
-        print(f'epoch 10, x: {x:f}')
-        return results
+        def gd(eta, f_grad):
+            x = 10.0 # 初始值
+            results = [x]
+            for i in range(10): # 迭代10次
+                x -= eta * f_grad(x)
+                results.append(float(x))
+                print(f"epoch ：{i+1}，当前x={x:.7f}")
+            print(f'epoch 10, x: {x:f}')
+            return results
 
-    results = gd(0.2, f_grad) # 传入0.2的学习率(步长大小)，和对应导数(坡度)
-    common.show_trace(results, f) # 显示梯度下降轨迹
-    common.show_trace(gd(0.05, f_grad), f) # 学习率改为0.05，可视化梯度下降轨迹
-    common.show_trace(gd(1.1, f_grad), f) # 学习率改为1.1，可视化梯度下降轨迹
-
-
-    c = torch.tensor(0.15 * np.pi) # 预定义的常数 c = 0.15π ≈ 0.4712
-
-    def f(x):  # 目标函数 f(x) = x * cos(c * x)
-        return x * torch.cos(c * x)
-
-    def f_grad(x):  # 目标函数的梯度 f'(x) = cos(c*x) - c*x*sin(c*x)
-        return torch.cos(c * x) - c * x * torch.sin(c * x)
-
-    common.show_trace(gd(2, f_grad), f) # 学习率设为2
-# visual_1d_gradient_descent()
-
-def visual_2d_gradient_descent():
-    '''多元梯度下降，及对应可视化'''
-    def f_2d(x1, x2):  # 目标函数 f(x) = x₁² + 2x₂²
-        return x1 ** 2 + 2 * x2 ** 2
-
-    def f_2d_grad(x1, x2):  # 目标函数的梯度：[∂f/∂x1, ∂f/∂x2] = [2x1, 4x2]
-        return (2 * x1, 4 * x2)
-
-    def gd_2d(x1, x2, s1, s2, f_grad):
-        """标准的梯度下降更新规则
-        x1, x2: 当前参数值
-        s1, s2: 状态变量（在此简单GD中未使用）
-        f_grad: 梯度计算函数
-        返回: 更新后的参数和状态 (new_x1, new_x2, 0, 0)
-        """
-        g1, g2 = f_grad(x1, x2) # 计算梯度
-        # 梯度下降更新：x ← x - η * ∇f(x)
-        new_x1 = x1 - eta * g1
-        new_x2 = x2 - eta * g2
-        return (new_x1, new_x2, 0, 0)  # 返回新参数，状态重置为0
-
-    eta = 0.1 # 学习率
-    # 执行梯度下降并可视化结果
-    results = common.train_2d(gd_2d, f_grad=f_2d_grad)
-    common.show_trace_2d(f_2d, results)
-# visual_2d_gradient_descent()
+        results = gd(0.2, f_grad) # 传入0.2的学习率(步长大小)，和对应导数(坡度)
+        common.show_trace(results, f) # 显示梯度下降轨迹
+        common.show_trace(gd(0.05, f_grad), f) # 学习率改为0.05，可视化梯度下降轨迹
+        common.show_trace(gd(1.1, f_grad), f) # 学习率改为1.1，可视化梯度下降轨迹
 
 
-c = torch.tensor(0.5)
+        c = torch.tensor(0.15 * np.pi) # 预定义的常数 c = 0.15π ≈ 0.4712
 
-def f(x):  # O目标函数
-    return torch.cosh(c * x)
+        def f(x):  # 目标函数 f(x) = x * cos(c * x)
+            return x * torch.cos(c * x)
 
-def f_grad(x):  # 目标函数的梯度
-    return c * torch.sinh(c * x)
+        def f_grad(x):  # 目标函数的梯度 f'(x) = cos(c*x) - c*x*sin(c*x)
+            return torch.cos(c * x) - c * x * torch.sin(c * x)
 
-def f_hess(x):  # 目标函数的Hessian
-    return c**2 * torch.cosh(c * x)
+        common.show_trace(gd(2, f_grad), f) # 学习率设为2
+    # visual_1d_gradient_descent()
 
-def newton(eta=1):
-    x = 10.0
-    results = [x]
-    for i in range(10):
-        x -= eta * f_grad(x) / f_hess(x)
-        results.append(float(x))
-    print('epoch 10, x:', x)
-    return results
+    def visual_2d_gradient_descent():
+        '''多元梯度下降，及对应可视化'''
+        def f_2d(x1, x2):  # 目标函数 f(x) = x₁² + 2x₂²
+            return x1 ** 2 + 2 * x2 ** 2
 
-common.show_trace(newton(), f)
+        def f_2d_grad(x1, x2):  # 目标函数的梯度：[∂f/∂x1, ∂f/∂x2] = [2x1, 4x2]
+            return (2 * x1, 4 * x2)
+
+        def gd_2d(x1, x2, s1, s2, f_grad):
+            """标准的梯度下降更新规则
+            x1, x2: 当前参数值
+            s1, s2: 状态变量（在此简单GD中未使用）
+            f_grad: 梯度计算函数
+            返回: 更新后的参数和状态 (new_x1, new_x2, 0, 0)
+            """
+            g1, g2 = f_grad(x1, x2) # 计算梯度
+            # 梯度下降更新：x ← x - η * ∇f(x)
+            new_x1 = x1 - eta * g1
+            new_x2 = x2 - eta * g2
+            return (new_x1, new_x2, 0, 0)  # 返回新参数，状态重置为0
+
+        eta = 0.1 # 学习率
+        # 执行梯度下降并可视化结果
+        results = common.train_2d(gd_2d, f_grad=f_2d_grad)
+        common.show_trace_2d(f_2d, results)
+    # visual_2d_gradient_descent()
+
+    def visual_newton():
+        '''牛顿法演示'''
+        c = torch.tensor(0.5) # 常数系数
+
+        def f(x):  # O目标函数：双曲余弦函数，形状类似开口向上的抛物线
+            return torch.cosh(c * x)
+
+        def f_grad(x):  # 目标函数的梯度（一阶导数）
+            # f'(x) = d/dx [cosh(c*x)] = c * sinh(c*x)
+            return c * torch.sinh(c * x) # 双曲正弦函数是双曲余弦的导数
+
+        def f_hess(x):  # 目标函数的Hessian（二阶导数，即 Hessian标量）
+            # f''(x) = d/dx [c * sinh(c*x)] = c² * cosh(c*x)
+            return c**2 * torch.cosh(c * x) # 双曲余弦的二阶导仍是双曲余弦
+
+        def newton(eta=1):
+            """牛顿法优化器
+            eta(η)：控制更新步长的缩放因子
+                    通常设为1，不稳定时可降低0.1-0.5
+            """
+            x = 10.0  # 初始点
+            results = [x]  # 记录轨迹
+            for i in range(10):
+                # 牛顿法更新公式：x ← x - η * f'(x)/f''(x)
+                ''' 牛顿法更新公式解析
+                数学形式：x_{k+1} = x_k - η * [∇²f(x_k)]⁻¹ * ∇f(x_k)
+                对于单变量情况：
+                [∇²f(x_k)]⁻¹简化为 1/f''(x_k)
+                因此更新公式简化为 x_k - f'(x_k)/f''(x_k)
+                '''
+                x -= eta * f_grad(x) / f_hess(x)
+                results.append(float(x))
+            print('epoch 10, x:', x)
+            return results
+
+        common.show_trace(newton(), f)
 
 
-c = torch.tensor(0.15 * np.pi)
+        c = torch.tensor(0.15 * np.pi) # 常数系数
 
-def f(x):  # 目标函数
-    return x * torch.cos(c * x)
+        def f(x):  # 目标函数：振荡函数
+            # c：控制函数振荡频率(值越大函数振荡越剧烈)
+            return x * torch.cos(c * x) # 产生周期性振荡的函数
 
-def f_grad(x):  # 目标函数的梯度
-    return torch.cos(c * x) - c * x * torch.sin(c * x)
+        def f_grad(x):
+            ''' 目标函数的梯度（一阶导数）
+            目标函数：f(x) = x * cos(c*x)
+            一阶导数（乘积法则）：
+            f'(x) = d/dx [x] * cos(c*x) + x * d/dx [cos(c*x)]
+                  = 1 * cos(c*x) + x * (-c * sin(c*x))
+                  = cos(c*x) - c*x*sin(c*x)
+            '''
+            return torch.cos(c * x) - c * x * torch.sin(c * x)
 
-def f_hess(x):  # 目标函数的Hessian
-    return - 2 * c * torch.sin(c * x) - x * c**2 * torch.cos(c * x)
+        def f_hess(x):
+            ''' 目标函数的Hessian（二阶导数）
+            目标函数：f(x) = x * cos(c*x)
+            二阶导数：
+            f''(x) = d/dx [cos(c*x)] - c * d/dx [x*sin(c*x)]
+                   = -c*sin(c*x) - c*[sin(c*x) + x*c*cos(c*x)]
+                   = -2c*sin(c*x) - c²x*cos(c*x)
+            '''
+            return - 2 * c * torch.sin(c * x) - x * c**2 * torch.cos(c * x)
 
-common.show_trace(newton(), f)
-
-
-c = torch.tensor(0.15 * np.pi)
-
-def f(x):  # 目标函数
-    return x * torch.cos(c * x)
-
-def f_grad(x):  # 目标函数的梯度
-    return torch.cos(c * x) - c * x * torch.sin(c * x)
-
-def f_hess(x):  # 目标函数的Hessian
-    return - 2 * c * torch.sin(c * x) - x * c**2 * torch.cos(c * x)
-
-common.show_trace(newton(), f)
-
-common.show_trace(newton(0.5), f)
-
-
+        common.show_trace(newton(), f)      # 学习率为1.0
+        common.show_trace(newton(0.5), f)   # 学习率为0.5
+    # visual_newton()
+# learn_gradient_descent()
 
 
 
