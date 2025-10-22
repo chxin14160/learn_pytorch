@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import math
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 import common
@@ -270,6 +271,89 @@ def learn_gradient_descent():
         common.show_trace(newton(0.5), f)   # 学习率为0.5
     # visual_newton()
 # learn_gradient_descent()
+
+
+# 初始化全局变量
+t = 1 # 时间步计数器（从1开始）
+
+def learn_sgd():
+    '''随机梯度下降：随机梯度更新 & 指数衰减和多项式衰减演示'''
+    def f(x1, x2):  # 目标函数 f(x) = x₁² + 2x₂²
+        return x1 ** 2 + 2 * x2 ** 2
+
+    def f_grad(x1, x2):  # 目标函数的梯度：[∂f/∂x1, ∂f/∂x2] = [2x1, 4x2]
+        return 2 * x1, 4 * x2
+
+    def sgd(x1, x2, s1, s2, f_grad):
+        """ 随机梯度下降更新
+        x1, x2: 当前参数值
+        s1, s2: 状态变量（为动量法等预留的，此处未使用）
+        f_grad: 梯度计算函数
+        返回: 更新后的参数和状态 (new_x1, new_x2, 0, 0)
+        """
+        g1, g2 = f_grad(x1, x2) # 计算真实梯度
+        # 添加均值为0、标准差为1的高斯噪声
+        # 模拟有噪声的梯度（添加随机噪声，模拟SGD的批次采样中批次梯度的不确定性）
+        g1 += torch.normal(0.0, 1, (1,)).item() # 给x1梯度加噪声
+        g2 += torch.normal(0.0, 1, (1,)).item() # 给x2梯度加噪声
+        eta_t = eta * lr() # 计算当前步长（此处学习率固定，固定为 0.1 * 1 = 0.1）
+        # 参数更新：x ← x - η * (∇f(x) + noise)，即带噪声的梯度下降
+        return (x1 - eta_t * g1, x2 - eta_t * g2, 0, 0) # 返回新参数和清零状态
+
+    def constant_lr():
+        return 1 # 固定学习率系数
+
+    eta = 0.1         # 基础学习率
+    lr = constant_lr  # 学习率函数（此处为常数）
+    common.show_trace_2d(f, common.train_2d(sgd, steps=50, f_grad=f_grad))
+
+    global t # 因为将这一章节的代码都封装了起来，所以这里需再声明一次t是全局变量
+
+    def exponential_lr():
+        ''' 指数学习率衰减策略
+        学习率按 η = e^(-0.1*t)衰减
+        调整指数系数（如-0.1）控制衰减速度
+        衰减特点：
+            初期下降较快（前几步学习率迅速减小）
+            后期趋于平缓（当t较大时，e^(-0.1*t)接近0）
+        适用场景：需要快速降低学习率的任务，但可能过早失去学习能力
+        '''
+        # 在函数外部定义，而在内部更新的全局变量
+        global t  # 声明使用全局变量t
+        t += 1    # 每次调用递增步数计数器
+        return math.exp(-0.1 * t)  # 指数衰减公式: η = e^(-0.1*t)
+
+    # 初始化全局变量
+    t = 1                # 时间步计数器（从1开始）
+    lr = exponential_lr  # 设置学习率函数为指数衰减
+    common.show_trace_2d(f, common.train_2d(sgd, steps=1000, f_grad=f_grad))
+
+
+    def polynomial_lr():
+        ''' 多项式学习率衰减策略
+        学习率按 η = (1 + 0.1*t)^(-0.5)衰减
+        优先尝试 (1 + α*t)^(-0.5)，调整α
+        衰减特点：
+            初期下降平缓（保护早期快速学习能力）
+            后期持续稳定衰减（避免后期震荡）
+        理论保障：对于凸优化问题可证明收敛性
+        参数选择：
+            分母中的 0.1控制衰减速度
+            指数 -0.5是理论推荐值
+        '''
+        # 在函数外部定义，而在内部更新的全局变量
+        global t  # 声明使用全局变量t
+        t += 1    # 每次调用递增步数计数器
+        return (1 + 0.1 * t) ** (-0.5)  # 多项式衰减公式: η = (1+0.1*t)^(-0.5)
+
+    # 重新初始化全局变量
+    t = 1               # 重置时间步计数器（因为切换策略了）
+    lr = polynomial_lr  # 设置学习率函数为多项式衰减
+    common.show_trace_2d(f, common.train_2d(sgd, steps=50, f_grad=f_grad)) # 迭代次数降到50
+# learn_sgd()
+
+
+
 
 
 
