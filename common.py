@@ -983,11 +983,13 @@ class Timer:  # @save
 
     def start(self):
         """启动计时器"""
-        self.tik = time.time()
+        self.tik = time.perf_counter()  # 更高精度
+        # self.tik = time.time()
 
     def stop(self):
         """停止计时器并将时间记录在列表中"""
-        self.times.append(time.time() - self.tik)
+        self.times.append(time.perf_counter() - self.tik)
+        # self.times.append(time.time() - self.tik)
         return self.times[-1]
 
     def avg(self):
