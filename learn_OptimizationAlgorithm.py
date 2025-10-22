@@ -353,6 +353,59 @@ def learn_sgd():
 # learn_sgd()
 
 
+def test_vectorization_and_cach_and_miniBatch():
+    '''演示：向量化和缓存，小批量'''
+    timer = common.Timer()      # 初始化计时器
+    A = torch.zeros(256, 256)   # A: 256x256零矩阵（用于存储结果）
+    B = torch.randn(256, 256)   # B: 256x256随机矩阵
+    C = torch.randn(256, 256)   # C: 256x256随机矩阵
+
+    # 测试一：【逐元素】计算A=BC
+    timer.start()   # 开始计时
+    for i in range(256):      # 遍历行
+        for j in range(256):  # 遍历列
+            # 计算 B的第i行 与 C的第j列 的点积
+            A[i, j] = torch.dot(B[i, :], C[:, j])
+    stop_time = timer.stop()    # 停止计时
+    print(f"【逐元素】计算耗时：{stop_time}")
+
+
+    # 测试二：【逐列】计算A=BC
+    timer.start()
+    for j in range(256):  # 仅遍历列
+        # 计算B与C的第j列的矩阵-向量乘积
+        A[:, j] = torch.mv(B, C[:, j])  # mv = matrix-vector multiplication
+    stop_time = timer.stop()
+    print(f"【逐列】计算耗时：{stop_time}")
+
+
+    # 测试三：【一次性】计算A=BC （一次性完整矩阵乘法）
+    timer.start()
+    # 直接调用优化后的矩阵乘法
+    A = torch.mm(B, C)  # mm = matrix-matrix multiplication
+    stop_time = timer.stop()
+    print(f"【一次性完整矩阵乘法】计算耗时：{stop_time}")
+
+
+    min_time = 1e-6  # 1微秒下限(避免除以零，增加最小时间阈值)
+
+    # 乘法和加法作为单独的操作（在实践中融合）即
+    # 底层计算库(如BLAS、cuBLAS)会将矩阵乘法(GEMM) 和
+    # 后续的加法操作（如偏置项相加）合并为一个复合操作，从而显著提升计算效率
+    gigaflops = [2/max(i, min_time) for i in timer.times]
+    print(f'performance in Gigaflops 性能对比（GFLOPS）: \n'
+          f'element 逐元素计算: {gigaflops[0]:.3f}, \n'
+          f'column 逐列计算 : {gigaflops[1]:.3f}, \n'
+          f'full 完整矩阵乘法: {gigaflops[2]:.3f}\n')
+
+
+    timer.start()
+    for j in range(0, 256, 64): # 一次性分为64列的“小批量”
+        A[:, j:j+64] = torch.mm(B, C[:, j:j+64])
+    timer.stop()
+    print(f'performance in Gigaflops: block {2 / timer.times[3]:.3f}')
+# test_vectorization_and_cach_and_miniBatch()
+
 
 
 
