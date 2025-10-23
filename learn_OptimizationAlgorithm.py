@@ -442,20 +442,53 @@ def train_sgd(lr, batch_size, num_epochs=2):
     return common.train_ch11(
         sgd, None, {'lr': lr}, data_iter, feature_dim, num_epochs)
 
-# 执行训练：学习率1，批量大小1500，训练轮数10
-gd_res = train_sgd(1, 1500, 10) # 全批量梯度下降
+# 执行训练：
+''' 全批量梯度下降(GD)，每1500样本更新一次
+lr=1：大学习率（全批量梯度更稳定，允许大学习率）
+batch_size=1500 ：全批量（使用全部数据计算梯度）
+num_epochs=10   ：训练10轮
+行为：
+    每轮（epoch）计算所有1500个样本的平均梯度，更新一次参数。
+    共更新 10次（每轮1次）
+'''
+# 学习率1，批量大小1500，训练轮数10
+gd_res = train_sgd(1, 1500, 10)
 
+''' 随机梯度下降(SGD)，每个样本更新一次
+lr=0.005：极小学习率（单样本梯度噪声大，需小步长）
+batch_size=1：纯SGD（每个样本单独更新）
+num_epochs=2（默认值）
+行为：
+    每轮（epoch）遍历1500个样本，每个样本更新一次参数。
+    共更新 1500 × 2 = 3000次（每轮1500次，迭代次数默认=2）
+'''
 sgd_res = train_sgd(0.005, 1)
 
-mini1_res = train_sgd(.4, 100)
+''' 小批量梯度下降（Mini-batch）
+每轮更新次数 分别为：
+15次/轮（1500/100）
+150次/轮（1500/10）
+但实际只更新了默认2轮(为了快速验证)，所以实际总更新次数如下：
+15 × 2 = 30
+150 × 2 = 300
+'''
+mini1_res = train_sgd(.4, 100) # 中等批量
+mini2_res = train_sgd(.05, 10) # 小批量
 
-mini2_res = train_sgd(.05, 10)
-
+# zip() 将时间序列和损失序列分离。将所有 时间序列和损失序列 分别整合成元组
+#       元组内每个元素为 某种梯度下降法的 时间序列 或 损失序列
+# map(list, ...) 将zip生成的元组转换为列表(将 转列表 应用到每个zip生成的元组上)
+# *list() 将嵌套列表解包为独立参数(相当于4种梯度下降法的 时间序列/损失序列 都单独拎出来，而不是大的时间序列整体)
 common.plot(*list(map(list, zip(gd_res, sgd_res, mini1_res, mini2_res))),
-         'time (sec)', 'loss', xlim=[1e-2, 10],
+         'time (sec)', 'loss',
+            xlim=[1e-2, 10], # 时间轴范围（0.01~10秒）
+            xscale='log',    # 时间轴用对数坐标（便于观察初期快速下降）
             figsize=[6, 3],
             legend=['gd', 'sgd', 'batch size=100', 'batch size=10'])
-plt.gca().set_xscale('log')
+# plt.gca().set_xscale('log')
+
+
+
 
 
 
