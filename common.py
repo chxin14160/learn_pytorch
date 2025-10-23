@@ -2415,6 +2415,82 @@ class TransformerDecoder(AttentionDecoder):
         return self._attention_weights
 
 
+def get_data_ch11(downloader, batch_size=10, n=1500):
+    ''' 数据集加载并预处理：不同飞行器产生的噪音'''
+    # 从CSV加载空气动力学数据集（制表符分隔）
+    data = np.genfromtxt(downloader.download('airfoil'),
+                         dtype=np.float32, delimiter='\t')
+    # 数据标准化：每个特征减去均值除以标准差，并转tensor
+    data = torch.from_numpy((data - data.mean(axis=0)) / data.std(axis=0))
+    # 创建数据迭代器（特征+标签）：前n条样本，最后一列作为标签
+    # load_array返回DataLoader对象
+    data_iter = load_array((data[:n, :-1], data[:n, -1]),
+                               batch_size, is_train=True)
+    return data_iter, data.shape[1]-1  # 返回迭代器和特征维度（总列数-1）
+
+
+# 定义模型
+def linreg(X, w, b):
+    """线性回归模型：X@w + b"""
+    return torch.matmul(X, w) + b # 矩阵乘法实现线性变换
+
+# 定义损失函数
+def squared_loss(y_hat, y):  # y_hat预测值, y真实值
+    """均方误差损失（除以2简化梯度计算）"""
+    # 调整y形状与y_hat一致，确保广播计算正确
+    return (y_hat - y.reshape(y_hat.shape)) ** 2 / 2 # /2只是为了与导数的因子2抵消，即为了导数计算更简洁
+
+# 损失评估函数
+def evaluate_loss(net, data_iter, loss):  #@save
+    """评估给定数据集上模型的损失"""
+    metric = Accumulator(2)  # 损失的总和,样本数量
+    for X, y in data_iter:
+        out = net(X)             # 模型预测输出结果
+        y = y.reshape(out.shape) # 将实际标签y的形状调整为与模型输出out一致
+        l = loss(out, y)         # 模型输出out与实际标签y之间的损失
+        metric.add(l.sum(), l.numel()) # 将损失总和 和 样本总数 累加到metric中
+    return metric[0] / metric[1] # 损失总和/预测总数，即平均损失
+
+
+def train_ch11(trainer_fn, states, hyperparams, data_iter,
+               feature_dim, num_epochs=2):
+    ''' 通用训练函数，支持不同的优化器（如SGD、Adam）
+    trainer_fn  ：优化器函数（如sgd）
+    states      ：优化器状态（如动量、二阶矩估计）
+    hyperparams ：超参数字典（如学习率lr）
+    data_iter   ：数据迭代器（生成(X, y)批次）
+    feature_dim ：输入特征维度
+    num_epochs  ：训练轮数（默认2轮）
+    '''
+    # 初始化模型参数（正态分布权重，零初始化偏置）
+    w = torch.normal(mean=0.0, std=0.01, size=(feature_dim, 1), requires_grad=True)
+    b = torch.zeros((1), requires_grad=True)
+
+    # 定义模型和损失函数
+    net = lambda X: linreg(X, w, b) # 线性回归模型
+    loss = squared_loss             # 平方损失函数
+
+    # 训练模型
+    animator = Animator(xlabel='epoch', ylabel='loss',
+                            xlim=[0, num_epochs], ylim=[0.22, 0.35])
+    n, timer = 0, Timer() # 样本计数器，计时器
+    for _ in range(num_epochs):
+        for X, y in data_iter:
+            l = loss(net(X), y).mean()  # 前向传播计算平均损失
+            l.backward()                # 反向传播计算梯度
+            # 优化器更新参数（传入参数列表、状态字典和超参数）
+            trainer_fn([w, b], states, hyperparams) # 优化器更新参数
+            # （梯度清零在优化器中实现）
+            n += X.shape[0]  # 更新样本计数
+            if n % 200 == 0: # 每200样本记录一次损失
+                timer.stop()
+                # 添加记录点：当前迭代次数，验证集损失
+                animator.add(n/X.shape[0]/len(data_iter),
+                             (evaluate_loss(net, data_iter, loss),))
+                timer.start()
+    print(f'loss: {animator.Y[0][-1]:.3f}, {timer.avg():.3f} sec/epoch')
+    return timer.cumsum(), animator.Y[0] # 返回总耗时和损失曲线
+
 
 
 

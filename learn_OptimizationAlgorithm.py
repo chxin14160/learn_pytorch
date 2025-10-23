@@ -6,6 +6,16 @@ import matplotlib.pyplot as plt
 import common
 
 
+# 下载器与数据集配置
+# 为 time_machine 数据集注册下载信息，包括文件路径和校验哈希值（用于验证文件完整性）
+downloader = common.C_Downloader()
+DATA_HUB = downloader.DATA_HUB  # 字典，存储数据集名称与下载信息
+DATA_URL = downloader.DATA_URL  # 基础URL，指向数据集的存储位置
+
+DATA_HUB['airfoil'] = (DATA_URL + 'airfoil_self_noise.dat',
+                           '76e5be1548fd8222e5074cf0faae75edff8cf93f')
+
+
 
 def learn_optimization_and_deep_learning():
     '''优化和深度学习'''
@@ -353,7 +363,7 @@ def learn_sgd():
 # learn_sgd()
 
 
-def test_vectorization_and_cach_and_miniBatch():
+def test_vectorization_and_cache_and_miniBatch():
     '''演示：向量化和缓存，小批量'''
     timer = common.Timer()      # 初始化计时器
     A = torch.zeros(256, 256)   # A: 256x256零矩阵（用于存储结果）
@@ -404,10 +414,48 @@ def test_vectorization_and_cach_and_miniBatch():
         A[:, j:j+64] = torch.mm(B, C[:, j:j+64])
     timer.stop()
     print(f'performance in Gigaflops: block {2 / timer.times[3]:.3f}')
-# test_vectorization_and_cach_and_miniBatch()
+# test_vectorization_and_cache_and_miniBatch()
 
 
 
+def sgd(params, states, hyperparams):
+    '''sgd优化器
+    params：需要被优化的变量列表（模型参数列表）
+    states：状态
+    hyperparams：存放超参数的字典
+    '''
+    for p in params:
+        # .sub_() 原地减法操作，直接修改参数值
+        # 等效于 p.data = p.data - η·∇L，但更高效
+        p.data.sub_(hyperparams['lr'] * p.grad) # 参数更新
+        p.grad.data.zero_() # 梯度清零
+
+# 训练流程封装
+def train_sgd(lr, batch_size, num_epochs=2):
+    '''训练流程封装：入口函数
+    1、初始化训练参数：如学习率，批量大小，训练轮数，所用优化器(sgd)
+    2、启动训练流程
+    '''
+    # 获取数据迭代器和特征维度
+    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size)
+    # 启动训练流程
+    return common.train_ch11(
+        sgd, None, {'lr': lr}, data_iter, feature_dim, num_epochs)
+
+# 执行训练：学习率1，批量大小1500，训练轮数10
+gd_res = train_sgd(1, 1500, 10) # 全批量梯度下降
+
+sgd_res = train_sgd(0.005, 1)
+
+mini1_res = train_sgd(.4, 100)
+
+mini2_res = train_sgd(.05, 10)
+
+common.plot(*list(map(list, zip(gd_res, sgd_res, mini1_res, mini2_res))),
+         'time (sec)', 'loss', xlim=[1e-2, 10],
+            figsize=[6, 3],
+            legend=['gd', 'sgd', 'batch size=100', 'batch size=10'])
+plt.gca().set_xscale('log')
 
 
 
