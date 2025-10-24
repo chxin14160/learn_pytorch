@@ -2416,7 +2416,10 @@ class TransformerDecoder(AttentionDecoder):
 
 
 def get_data_ch11(downloader, batch_size=10, n=1500):
-    ''' 数据集加载并预处理：不同飞行器产生的噪音'''
+    ''' 数据集加载并预处理：不同飞行器产生的噪音
+    batch_size=10, 批量大小
+    n=1500 只是用前n个样本
+    '''
     # 从CSV加载空气动力学数据集（制表符分隔）
     data = np.genfromtxt(downloader.download('airfoil'),
                          dtype=np.float32, delimiter='\t')
@@ -2490,6 +2493,48 @@ def train_ch11(trainer_fn, states, hyperparams, data_iter,
                 timer.start()
     print(f'loss: {animator.Y[0][-1]:.3f}, {timer.avg():.3f} sec/epoch')
     return timer.cumsum(), animator.Y[0] # 返回总耗时和损失曲线
+
+
+def train_concise_ch11(trainer_fn, hyperparams, data_iter, num_epochs=4):
+    ''' 通用训练函数(简洁版本,调用api)
+    trainer_fn  ：优化器构造函数（如torch.optim.SGD）可灵活切换
+    hyperparams ：超参数字典（如学习率lr）{'lr': 0.01}
+    data_iter   ：数据迭代器（生成(X, y)批次）
+    num_epochs  ：训练轮数（默认4轮）
+    '''
+    # 初始化模型（固定为单层线性回归
+    net = nn.Sequential(nn.Linear(5, 1)) # 输入维度硬编码为5
+    def init_weights(m):
+        '''权重初始化函数'''
+        if type(m) == nn.Linear:
+            torch.nn.init.normal_(m.weight, std=0.01) # 权重~N(0,0.01)
+    net.apply(init_weights) # 应用初始化
+
+    ''' 使用PyTorch内置优化器（如torch.optim.SGD）
+    自动管理状态：PyTorch内部维护动量、二阶矩等状态
+    无需手动传入：通过optimizer.step()自动更新
+    '''
+    optimizer = trainer_fn(net.parameters(), **hyperparams) # 创建优化器
+    loss = nn.MSELoss(reduction='none') # 定义损失函数（均方误差，不自动求平均）
+    animator = Animator(xlabel='epoch', ylabel='loss',
+                            xlim=[0, num_epochs], ylim=[0.22, 0.35])
+    n, timer = 0, Timer()
+    for _ in range(num_epochs):
+        for X, y in data_iter:
+            optimizer.zero_grad()       # 梯度清零
+            out = net(X)                # 前向传播
+            y = y.reshape(out.shape)    # 确保标签形状匹配
+            l = loss(out, y)            # 计算损失
+            l.mean().backward()         # 反向传播（平均损失）
+            optimizer.step()            # 参数更新
+            n += X.shape[0]             # 更新样本计数
+            if n % 200 == 0: # 每200样本记录一次损失
+                timer.stop()
+                # 注意：PyTorch的MSELoss计算平方误差时不带1/2系数，需手动除以2
+                animator.add(n/X.shape[0]/len(data_iter),
+                             (evaluate_loss(net, data_iter, loss) / 2,))
+                timer.start()
+    print(f'loss: {animator.Y[0][-1]:.3f}, {timer.avg():.3f} sec/epoch')
 
 
 
