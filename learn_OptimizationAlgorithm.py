@@ -488,7 +488,10 @@ common.plot(*list(map(list, zip(gd_res, sgd_res, mini1_res, mini2_res))),
 # plt.gca().set_xscale('log')
 
 
-
+# 获取数据迭代器，批量大小10(选用小批量训练)
+data_iter, _ = common.get_data_ch11(downloader, batch_size=10)
+trainer = torch.optim.SGD # 指定优化器为PyTorch内置的SGD（随机梯度下降）
+common.train_concise_ch11(trainer, {'lr': 0.01}, data_iter)
 
 
 
