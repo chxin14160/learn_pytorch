@@ -363,135 +363,273 @@ def learn_sgd():
 # learn_sgd()
 
 
-def test_vectorization_and_cache_and_miniBatch():
-    '''演示：向量化和缓存，小批量'''
-    timer = common.Timer()      # 初始化计时器
-    A = torch.zeros(256, 256)   # A: 256x256零矩阵（用于存储结果）
-    B = torch.randn(256, 256)   # B: 256x256随机矩阵
-    C = torch.randn(256, 256)   # C: 256x256随机矩阵
+def learn_MiniBatch_sgd():
+    '''小批量随机梯度下降'''
+    def test_vectorization_and_cache_and_miniBatch():
+        '''演示：向量化和缓存，小批量'''
+        timer = common.Timer()      # 初始化计时器
+        A = torch.zeros(256, 256)   # A: 256x256零矩阵（用于存储结果）
+        B = torch.randn(256, 256)   # B: 256x256随机矩阵
+        C = torch.randn(256, 256)   # C: 256x256随机矩阵
 
-    # 测试一：【逐元素】计算A=BC
-    timer.start()   # 开始计时
-    for i in range(256):      # 遍历行
-        for j in range(256):  # 遍历列
-            # 计算 B的第i行 与 C的第j列 的点积
-            A[i, j] = torch.dot(B[i, :], C[:, j])
-    stop_time = timer.stop()    # 停止计时
-    print(f"【逐元素】计算耗时：{stop_time}")
-
-
-    # 测试二：【逐列】计算A=BC
-    timer.start()
-    for j in range(256):  # 仅遍历列
-        # 计算B与C的第j列的矩阵-向量乘积
-        A[:, j] = torch.mv(B, C[:, j])  # mv = matrix-vector multiplication
-    stop_time = timer.stop()
-    print(f"【逐列】计算耗时：{stop_time}")
+        # 测试一：【逐元素】计算A=BC
+        timer.start()   # 开始计时
+        for i in range(256):      # 遍历行
+            for j in range(256):  # 遍历列
+                # 计算 B的第i行 与 C的第j列 的点积
+                A[i, j] = torch.dot(B[i, :], C[:, j])
+        stop_time = timer.stop()    # 停止计时
+        print(f"【逐元素】计算耗时：{stop_time}")
 
 
-    # 测试三：【一次性】计算A=BC （一次性完整矩阵乘法）
-    timer.start()
-    # 直接调用优化后的矩阵乘法
-    A = torch.mm(B, C)  # mm = matrix-matrix multiplication
-    stop_time = timer.stop()
-    print(f"【一次性完整矩阵乘法】计算耗时：{stop_time}")
+        # 测试二：【逐列】计算A=BC
+        timer.start()
+        for j in range(256):  # 仅遍历列
+            # 计算B与C的第j列的矩阵-向量乘积
+            A[:, j] = torch.mv(B, C[:, j])  # mv = matrix-vector multiplication
+        stop_time = timer.stop()
+        print(f"【逐列】计算耗时：{stop_time}")
 
 
-    min_time = 1e-6  # 1微秒下限(避免除以零，增加最小时间阈值)
-
-    # 乘法和加法作为单独的操作（在实践中融合）即
-    # 底层计算库(如BLAS、cuBLAS)会将矩阵乘法(GEMM) 和
-    # 后续的加法操作（如偏置项相加）合并为一个复合操作，从而显著提升计算效率
-    gigaflops = [2/max(i, min_time) for i in timer.times]
-    print(f'performance in Gigaflops 性能对比（GFLOPS）: \n'
-          f'element 逐元素计算: {gigaflops[0]:.3f}, \n'
-          f'column 逐列计算 : {gigaflops[1]:.3f}, \n'
-          f'full 完整矩阵乘法: {gigaflops[2]:.3f}\n')
+        # 测试三：【一次性】计算A=BC （一次性完整矩阵乘法）
+        timer.start()
+        # 直接调用优化后的矩阵乘法
+        A = torch.mm(B, C)  # mm = matrix-matrix multiplication
+        stop_time = timer.stop()
+        print(f"【一次性完整矩阵乘法】计算耗时：{stop_time}")
 
 
-    timer.start()
-    for j in range(0, 256, 64): # 一次性分为64列的“小批量”
-        A[:, j:j+64] = torch.mm(B, C[:, j:j+64])
-    timer.stop()
-    print(f'performance in Gigaflops: block {2 / timer.times[3]:.3f}')
-# test_vectorization_and_cache_and_miniBatch()
+        min_time = 1e-6  # 1微秒下限(避免除以零，增加最小时间阈值)
+
+        # 乘法和加法作为单独的操作（在实践中融合）即
+        # 底层计算库(如BLAS、cuBLAS)会将矩阵乘法(GEMM) 和
+        # 后续的加法操作（如偏置项相加）合并为一个复合操作，从而显著提升计算效率
+        gigaflops = [2/max(i, min_time) for i in timer.times]
+        print(f'performance in Gigaflops 性能对比（GFLOPS）: \n'
+              f'element 逐元素计算: {gigaflops[0]:.3f}, \n'
+              f'column 逐列计算 : {gigaflops[1]:.3f}, \n'
+              f'full 完整矩阵乘法: {gigaflops[2]:.3f}\n')
+
+
+        timer.start()
+        for j in range(0, 256, 64): # 一次性分为64列的“小批量”
+            A[:, j:j+64] = torch.mm(B, C[:, j:j+64])
+        timer.stop()
+        print(f'performance in Gigaflops: block {2 / timer.times[3]:.3f}')
+    # test_vectorization_and_cache_and_miniBatch()
 
 
 
-def sgd(params, states, hyperparams):
-    '''sgd优化器
-    params：需要被优化的变量列表（模型参数列表）
-    states：状态
-    hyperparams：存放超参数的字典
+    def sgd(params, states, hyperparams):
+        '''sgd优化器
+        params：需要被优化的变量列表（模型参数列表）
+        states：状态
+        hyperparams：存放超参数的字典
+        '''
+        for p in params:
+            # .sub_() 原地减法操作，直接修改参数值
+            # 等效于 p.data = p.data - η·∇L，但更高效
+            p.data.sub_(hyperparams['lr'] * p.grad) # 参数更新
+            p.grad.data.zero_() # 梯度清零
+
+    # 训练流程封装
+    def train_sgd(lr, batch_size, num_epochs=2):
+        '''训练流程封装：入口函数
+        1、初始化训练参数：如学习率，批量大小，训练轮数，所用优化器(sgd)
+        2、启动训练流程
+        '''
+        # 获取数据迭代器和特征维度
+        data_iter, feature_dim = common.get_data_ch11(downloader, batch_size)
+        # 启动训练流程
+        return common.train_ch11(
+            sgd, None, {'lr': lr}, data_iter, feature_dim, num_epochs)
+
+    # 执行训练：
+    ''' 全批量梯度下降(GD)，每1500样本更新一次
+    lr=1：大学习率（全批量梯度更稳定，允许大学习率）
+    batch_size=1500 ：全批量（使用全部数据计算梯度）
+    num_epochs=10   ：训练10轮
+    行为：
+        每轮（epoch）计算所有1500个样本的平均梯度，更新一次参数。
+        共更新 10次（每轮1次）
     '''
-    for p in params:
-        # .sub_() 原地减法操作，直接修改参数值
-        # 等效于 p.data = p.data - η·∇L，但更高效
-        p.data.sub_(hyperparams['lr'] * p.grad) # 参数更新
-        p.grad.data.zero_() # 梯度清零
+    # 学习率1，批量大小1500，训练轮数10
+    gd_res = train_sgd(1, 1500, 10)
 
-# 训练流程封装
-def train_sgd(lr, batch_size, num_epochs=2):
-    '''训练流程封装：入口函数
-    1、初始化训练参数：如学习率，批量大小，训练轮数，所用优化器(sgd)
-    2、启动训练流程
+    ''' 随机梯度下降(SGD)，每个样本更新一次
+    lr=0.005：极小学习率（单样本梯度噪声大，需小步长）
+    batch_size=1：纯SGD（每个样本单独更新）
+    num_epochs=2（默认值）
+    行为：
+        每轮（epoch）遍历1500个样本，每个样本更新一次参数。
+        共更新 1500 × 2 = 3000次（每轮1500次，迭代次数默认=2）
     '''
-    # 获取数据迭代器和特征维度
-    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size)
-    # 启动训练流程
-    return common.train_ch11(
-        sgd, None, {'lr': lr}, data_iter, feature_dim, num_epochs)
+    sgd_res = train_sgd(0.005, 1)
 
-# 执行训练：
-''' 全批量梯度下降(GD)，每1500样本更新一次
-lr=1：大学习率（全批量梯度更稳定，允许大学习率）
-batch_size=1500 ：全批量（使用全部数据计算梯度）
-num_epochs=10   ：训练10轮
-行为：
-    每轮（epoch）计算所有1500个样本的平均梯度，更新一次参数。
-    共更新 10次（每轮1次）
-'''
-# 学习率1，批量大小1500，训练轮数10
-gd_res = train_sgd(1, 1500, 10)
+    ''' 小批量梯度下降（Mini-batch）
+    每轮更新次数 分别为：
+    15次/轮（1500/100）
+    150次/轮（1500/10）
+    但实际只更新了默认2轮(为了快速验证)，所以实际总更新次数如下：
+    15 × 2 = 30
+    150 × 2 = 300
+    '''
+    mini1_res = train_sgd(.4, 100) # 中等批量
+    mini2_res = train_sgd(.05, 10) # 小批量
 
-''' 随机梯度下降(SGD)，每个样本更新一次
-lr=0.005：极小学习率（单样本梯度噪声大，需小步长）
-batch_size=1：纯SGD（每个样本单独更新）
-num_epochs=2（默认值）
-行为：
-    每轮（epoch）遍历1500个样本，每个样本更新一次参数。
-    共更新 1500 × 2 = 3000次（每轮1500次，迭代次数默认=2）
-'''
-sgd_res = train_sgd(0.005, 1)
-
-''' 小批量梯度下降（Mini-batch）
-每轮更新次数 分别为：
-15次/轮（1500/100）
-150次/轮（1500/10）
-但实际只更新了默认2轮(为了快速验证)，所以实际总更新次数如下：
-15 × 2 = 30
-150 × 2 = 300
-'''
-mini1_res = train_sgd(.4, 100) # 中等批量
-mini2_res = train_sgd(.05, 10) # 小批量
-
-# zip() 将时间序列和损失序列分离。将所有 时间序列和损失序列 分别整合成元组
-#       元组内每个元素为 某种梯度下降法的 时间序列 或 损失序列
-# map(list, ...) 将zip生成的元组转换为列表(将 转列表 应用到每个zip生成的元组上)
-# *list() 将嵌套列表解包为独立参数(相当于4种梯度下降法的 时间序列/损失序列 都单独拎出来，而不是大的时间序列整体)
-common.plot(*list(map(list, zip(gd_res, sgd_res, mini1_res, mini2_res))),
-         'time (sec)', 'loss',
-            xlim=[1e-2, 10], # 时间轴范围（0.01~10秒）
-            xscale='log',    # 时间轴用对数坐标（便于观察初期快速下降）
-            figsize=[6, 3],
-            legend=['gd', 'sgd', 'batch size=100', 'batch size=10'])
-# plt.gca().set_xscale('log')
+    # zip() 将时间序列和损失序列分离。将所有 时间序列和损失序列 分别整合成元组
+    #       元组内每个元素为 某种梯度下降法的 时间序列 或 损失序列
+    # map(list, ...) 将zip生成的元组转换为列表(将 转列表 应用到每个zip生成的元组上)
+    # *list() 将嵌套列表解包为独立参数(相当于4种梯度下降法的 时间序列/损失序列 都单独拎出来，而不是大的时间序列整体)
+    common.plot(*list(map(list, zip(gd_res, sgd_res, mini1_res, mini2_res))),
+             'time (sec)', 'loss',
+                xlim=[1e-2, 10], # 时间轴范围（0.01~10秒）
+                xscale='log',    # 时间轴用对数坐标（便于观察初期快速下降）
+                figsize=[6, 3],
+                legend=['gd', 'sgd', 'batch size=100', 'batch size=10'])
+    # plt.gca().set_xscale('log')
 
 
-# 获取数据迭代器，批量大小10(选用小批量训练)
-data_iter, _ = common.get_data_ch11(downloader, batch_size=10)
-trainer = torch.optim.SGD # 指定优化器为PyTorch内置的SGD（随机梯度下降）
-common.train_concise_ch11(trainer, {'lr': 0.01}, data_iter)
+    # 获取数据迭代器，批量大小10(选用小批量训练)
+    data_iter, _ = common.get_data_ch11(downloader, batch_size=10)
+    trainer = torch.optim.SGD # 指定优化器为PyTorch内置的SGD（随机梯度下降）
+    common.train_concise_ch11(trainer, {'lr': 0.01}, data_iter)
+# learn_MiniBatch_sgd()
+
+
+def test_momentum_method_effectiveness_demonstration():
+    '''动量法效果演示'''
+    eta = 0.4 # 学习率
+    def f_2d(x1, x2):
+        """二维目标函数：f(x1, x2) = 0.1*x1² + 2*x2²
+        椭圆抛物面，最小值在原点(0,0)
+        在x2方向（系数2）比x1方向（系数0.1）陡峭得多
+        """
+        return 0.1 * x1 ** 2 + 2 * x2 ** 2
+    def gd_2d(x1, x2, s1, s2):
+        """自定义的梯度下降更新函数（注意：这不是标准形式！）
+        x1, x2: 当前参数值
+        s1, s2: 预留的状态变量（此处未使用）
+        返回：更新后的参数 (x1_new, x2_new, 0, 0)
+
+        注意：这里的更新规则很特殊！
+            标准梯度下降应为：x = x - η * ∇f(x)
+            其中 ∇f(x) = [∂f/∂x1, ∂f/∂x2] = [0.2*x1, 4*x2]
+
+        此实现直接写为：x1_new = x1 - η*0.2*x1 = (1 - 0.2η)*x1
+                     x2_new = x2 - η* 4 *x2 = (1 - 4η)*x2
+        """
+        return (x1 - eta * 0.2 * x1, x2 - eta * 4 * x2, 0, 0)
+
+    common.show_trace_2d(f_2d, common.train_2d(gd_2d))
+
+    eta = 0.6 # 学习率略微提高到 0.6
+    common.show_trace_2d(f_2d, common.train_2d(gd_2d))
+
+
+    def momentum_2d(x1, x2, v1, v2):
+        """动量法更新函数
+        x1, x2: 当前参数值
+        v1, v2: 动量状态（历史梯度累积）
+        返回：更新后的参数和动量状态
+        """
+        # 动量更新(动量累积)：v_new = β*v_old + 当前梯度
+        v1 = beta * v1 + 0.2 * x1  # x1方向：梯度 = ∂f/∂x1 = 0.2*x1
+        v2 = beta * v2 + 4 * x2    # x2方向：梯度 = ∂f/∂x2 = 4*x2
+
+        # 参数更新：x_new = x_old - η*v_new
+        return x1 - eta * v1, x2 - eta * v2, v1, v2
+
+    eta, beta = 0.6, 0.5 # 学习率依旧是0.6，动量系数0.5（保留50%的历史动量）
+    common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
+
+    eta, beta = 0.6, 0.25 # 动量系数减半至0.25（只保留25%的历史动量）
+    common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
+
+
+    betas = [0.95, 0.9, 0.6, 0] # 动量系数列表：从强记忆到无记忆
+    '''
+    纵轴含义：beta ** x
+    表示t步前的梯度在当前动量项中的权重系数
+    例如：beta=0.9时，10步前的梯度权重是 0.9^10 ≈ 0.35
+    '''
+    for beta in betas: # 对每个beta值绘制衰减曲线
+        # 创建时间序列：0到39（代表过去的时间步）
+        x = torch.arange(40).detach().numpy()  # [0, 1, 2, ..., 39]
+        # 计算β^t：表示t步前的梯度在当前动量中的权重
+        plt.plot(x, beta ** x, label=f'beta = {beta:.2f}')
+    plt.xlabel('time')  # x轴：时间（过去的步数）
+    plt.legend()        # 显示图例
+# test_momentum_method_effectiveness_demonstration()
+
+
+# 获取数据集的迭代器和特征维度，批量大小为10
+data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+
+def momentum_method_StartFromScratch():
+    '''动量法：从零开始实现'''
+    def init_momentum_states(feature_dim):
+        ''' 动量状态初始化
+        根据特征维度，初始化动量法的状态参数
+        为每个可训练参数创建对应的动量变量v，初始化为0
+        '''
+        v_w = torch.zeros((feature_dim, 1)) # 权重w的动量状态（形状同w）
+        v_b = torch.zeros(1)                # 偏置b的动量状态（形状同b）
+        return (v_w, v_b)
+
+    def sgd_momentum(params, states, hyperparams):
+        '''动量法优化器'''
+        for p, v in zip(params, states): # 同时遍历参数和对应的动量状态
+            with torch.no_grad():        # 禁用梯度跟踪（纯数值计算）
+                # 动量更新：v_new = β * v_old + 当前梯度
+                v[:] = hyperparams['momentum'] * v + p.grad # 原地更新动量状态（保持内存引用）
+                # 参数更新：p_new = p_old - η * v_new
+                p[:] -= hyperparams['lr'] * v # 原地更新参数值
+            p.grad.data.zero_()           # 清零梯度，准备下一轮计算（防止梯度累积）
+
+    def train_momentum(lr, momentum, num_epochs=2):
+        '''训练函数封装'''
+        common.train_ch11(
+            sgd_momentum,                    # 优化器函数
+            init_momentum_states(feature_dim), # 初始化动量状态
+            {'lr': lr, 'momentum': momentum}, # 超参数字典
+            data_iter,                        # 数据迭代器
+            feature_dim,                      # 特征维度
+            num_epochs                        # 训练轮数
+        )
+
+    # # 获取数据集的迭代器和特征维度，批量大小为10
+    # data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+
+    # 中等动量，标准学习率。效果：平衡收敛速度与稳定性
+    train_momentum(0.02, 0.5) # 学习率0.02，动量系数0.5
+
+    # 强动量，降低学习率（避免震荡）。效果：更强记忆效应，需更小心控制步长
+    # 动量系数增加到0.9(相当于有效样本数量增加)，学习率略微降至0.01以确保可控
+    train_momentum(0.01, 0.9)
+
+    # 强动量，更小学习率（确保收敛）。效果：最稳定收敛，但可能稍慢
+    # 学习率再降至0.005，会产生良好的收敛性能
+    train_momentum(0.005, 0.9)
+# momentum_method_StartFromScratch()
+
+def momentum_method_SimpleImplementation():
+    '''动量法：简洁实现'''
+    trainer = torch.optim.SGD # 指定优化器类 (注意：是类引用，而非示例)
+    # PyTorch的torch.optim.SGD根据是否提供momentum参数，自动选择工作模式
+    # 这里提供了momentum参数，所以自动启用了动量法
+    # 内部实现：v = momentum * v + grad; p = p - lr * v
+    common.train_concise_ch11(trainer, {'lr': 0.005, 'momentum': 0.9}, data_iter)
+# momentum_method_SimpleImplementation()
+
+
+
+
+
+# def momentum_method_SimpleImplementation():
+#     '''动量法：简洁实现'''
+
+
 
 
 
