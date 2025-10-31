@@ -562,7 +562,6 @@ def test_momentum_method_effectiveness_demonstration():
     plt.legend()        # 显示图例
 # test_momentum_method_effectiveness_demonstration()
 
-
 # 获取数据集的迭代器和特征维度，批量大小为10
 data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
 
@@ -623,11 +622,19 @@ def momentum_method_SimpleImplementation():
 # momentum_method_SimpleImplementation()
 
 
+# 可视化不同曲率（λ）下，梯度下降的收敛行为
+# 定义不同的曲率值（控制损失函数的陡峭程度）
+lambdas = [0.1, 1, 10, 19]  # λ值：从平缓到陡峭
+eta = 0.1 # 固定学习率为0.1
+plt.figure(figsize=(6, 4))  # 创建图形
+for lam in lambdas:         # 对每个λ值绘制收敛曲线
+    t = torch.arange(20).detach().numpy() # 创建时间序列：0到19（20个时间步）
+    # 计算每个时间步的收敛因子：(1 - ηλ)^t
+    plt.plot(t, (1 - eta * lam) ** t, label=f'lambda = {lam:.2f}')
+plt.xlabel('time')  # x轴：时间（迭代次数）
+plt.legend()        # 显示图例
 
 
-
-# def momentum_method_SimpleImplementation():
-#     '''动量法：简洁实现'''
 
 
 
