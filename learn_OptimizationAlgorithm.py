@@ -497,143 +497,145 @@ def learn_MiniBatch_sgd():
 # learn_MiniBatch_sgd()
 
 
-def test_momentum_method_effectiveness_demonstration():
-    '''动量法效果演示'''
-    eta = 0.4 # 学习率
-    def f_2d(x1, x2):
-        """二维目标函数：f(x1, x2) = 0.1*x1² + 2*x2²
-        椭圆抛物面，最小值在原点(0,0)
-        在x2方向（系数2）比x1方向（系数0.1）陡峭得多
-        """
-        return 0.1 * x1 ** 2 + 2 * x2 ** 2
-    def gd_2d(x1, x2, s1, s2):
-        """自定义的梯度下降更新函数（注意：这不是标准形式！）
-        x1, x2: 当前参数值
-        s1, s2: 预留的状态变量（此处未使用）
-        返回：更新后的参数 (x1_new, x2_new, 0, 0)
+def learn_momentum():
+    '''动量法'''
+    def test_momentum_method_effectiveness_demonstration():
+        '''动量法效果演示'''
+        eta = 0.4 # 学习率
+        def f_2d(x1, x2):
+            """二维目标函数：f(x1, x2) = 0.1*x1² + 2*x2²
+            椭圆抛物面，最小值在原点(0,0)
+            在x2方向（系数2）比x1方向（系数0.1）陡峭得多
+            """
+            return 0.1 * x1 ** 2 + 2 * x2 ** 2
+        def gd_2d(x1, x2, s1, s2):
+            """自定义的梯度下降更新函数（注意：这不是标准形式！）
+            x1, x2: 当前参数值
+            s1, s2: 预留的状态变量（此处未使用）
+            返回：更新后的参数 (x1_new, x2_new, 0, 0)
 
-        注意：这里的更新规则很特殊！
-            标准梯度下降应为：x = x - η * ∇f(x)
-            其中 ∇f(x) = [∂f/∂x1, ∂f/∂x2] = [0.2*x1, 4*x2]
+            注意：这里的更新规则很特殊！
+                标准梯度下降应为：x = x - η * ∇f(x)
+                其中 ∇f(x) = [∂f/∂x1, ∂f/∂x2] = [0.2*x1, 4*x2]
 
-        此实现直接写为：x1_new = x1 - η*0.2*x1 = (1 - 0.2η)*x1
-                     x2_new = x2 - η* 4 *x2 = (1 - 4η)*x2
-        """
-        return (x1 - eta * 0.2 * x1, x2 - eta * 4 * x2, 0, 0)
+            此实现直接写为：x1_new = x1 - η*0.2*x1 = (1 - 0.2η)*x1
+                         x2_new = x2 - η* 4 *x2 = (1 - 4η)*x2
+            """
+            return (x1 - eta * 0.2 * x1, x2 - eta * 4 * x2, 0, 0)
 
-    common.show_trace_2d(f_2d, common.train_2d(gd_2d))
+        common.show_trace_2d(f_2d, common.train_2d(gd_2d))
 
-    eta = 0.6 # 学习率略微提高到 0.6
-    common.show_trace_2d(f_2d, common.train_2d(gd_2d))
-
-
-    def momentum_2d(x1, x2, v1, v2):
-        """动量法更新函数
-        x1, x2: 当前参数值
-        v1, v2: 动量状态（历史梯度累积）
-        返回：更新后的参数和动量状态
-        """
-        # 动量更新(动量累积)：v_new = β*v_old + 当前梯度
-        v1 = beta * v1 + 0.2 * x1  # x1方向：梯度 = ∂f/∂x1 = 0.2*x1
-        v2 = beta * v2 + 4 * x2    # x2方向：梯度 = ∂f/∂x2 = 4*x2
-
-        # 参数更新：x_new = x_old - η*v_new
-        return x1 - eta * v1, x2 - eta * v2, v1, v2
-
-    eta, beta = 0.6, 0.5 # 学习率依旧是0.6，动量系数0.5（保留50%的历史动量）
-    common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
-
-    eta, beta = 0.6, 0.25 # 动量系数减半至0.25（只保留25%的历史动量）
-    common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
+        eta = 0.6 # 学习率略微提高到 0.6
+        common.show_trace_2d(f_2d, common.train_2d(gd_2d))
 
 
-    betas = [0.95, 0.9, 0.6, 0] # 动量系数列表：从强记忆到无记忆
-    '''
-    纵轴含义：beta ** x
-    表示t步前的梯度在当前动量项中的权重系数
-    例如：beta=0.9时，10步前的梯度权重是 0.9^10 ≈ 0.35
-    '''
-    for beta in betas: # 对每个beta值绘制衰减曲线
-        # 创建时间序列：0到39（代表过去的时间步）
-        x = torch.arange(40).detach().numpy()  # [0, 1, 2, ..., 39]
-        # 计算β^t：表示t步前的梯度在当前动量中的权重
-        plt.plot(x, beta ** x, label=f'beta = {beta:.2f}')
-    plt.xlabel('time')  # x轴：时间（过去的步数）
-    plt.legend()        # 显示图例
-# test_momentum_method_effectiveness_demonstration()
+        def momentum_2d(x1, x2, v1, v2):
+            """动量法更新函数
+            x1, x2: 当前参数值
+            v1, v2: 动量状态（历史梯度累积）
+            返回：更新后的参数和动量状态
+            """
+            # 动量更新(动量累积)：v_new = β*v_old + 当前梯度
+            v1 = beta * v1 + 0.2 * x1  # x1方向：梯度 = ∂f/∂x1 = 0.2*x1
+            v2 = beta * v2 + 4 * x2    # x2方向：梯度 = ∂f/∂x2 = 4*x2
 
-# 获取数据集的迭代器和特征维度，批量大小为10
-data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+            # 参数更新：x_new = x_old - η*v_new
+            return x1 - eta * v1, x2 - eta * v2, v1, v2
 
-def momentum_method_StartFromScratch():
-    '''动量法：从零开始实现'''
-    def init_momentum_states(feature_dim):
-        ''' 动量状态初始化
-        根据特征维度，初始化动量法的状态参数
-        为每个可训练参数创建对应的动量变量v，初始化为0
+        eta, beta = 0.6, 0.5 # 学习率依旧是0.6，动量系数0.5（保留50%的历史动量）
+        common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
+
+        eta, beta = 0.6, 0.25 # 动量系数减半至0.25（只保留25%的历史动量）
+        common.show_trace_2d(f_2d, common.train_2d(momentum_2d))
+
+
+        betas = [0.95, 0.9, 0.6, 0] # 动量系数列表：从强记忆到无记忆
         '''
-        v_w = torch.zeros((feature_dim, 1)) # 权重w的动量状态（形状同w）
-        v_b = torch.zeros(1)                # 偏置b的动量状态（形状同b）
-        return (v_w, v_b)
+        纵轴含义：beta ** x
+        表示t步前的梯度在当前动量项中的权重系数
+        例如：beta=0.9时，10步前的梯度权重是 0.9^10 ≈ 0.35
+        '''
+        for beta in betas: # 对每个beta值绘制衰减曲线
+            # 创建时间序列：0到39（代表过去的时间步）
+            x = torch.arange(40).detach().numpy()  # [0, 1, 2, ..., 39]
+            # 计算β^t：表示t步前的梯度在当前动量中的权重
+            plt.plot(x, beta ** x, label=f'beta = {beta:.2f}')
+        plt.xlabel('time')  # x轴：时间（过去的步数）
+        plt.legend()        # 显示图例
+    # test_momentum_method_effectiveness_demonstration()
 
-    def sgd_momentum(params, states, hyperparams):
-        '''动量法优化器'''
-        for p, v in zip(params, states): # 同时遍历参数和对应的动量状态
-            with torch.no_grad():        # 禁用梯度跟踪（纯数值计算）
-                # 动量更新：v_new = β * v_old + 当前梯度
-                v[:] = hyperparams['momentum'] * v + p.grad # 原地更新动量状态（保持内存引用）
-                # 参数更新：p_new = p_old - η * v_new
-                p[:] -= hyperparams['lr'] * v # 原地更新参数值
-            p.grad.data.zero_()           # 清零梯度，准备下一轮计算（防止梯度累积）
+    # 获取数据集的迭代器和特征维度，批量大小为10
+    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
 
-    def train_momentum(lr, momentum, num_epochs=2):
-        '''训练函数封装'''
-        common.train_ch11(
-            sgd_momentum,                    # 优化器函数
-            init_momentum_states(feature_dim), # 初始化动量状态
-            {'lr': lr, 'momentum': momentum}, # 超参数字典
-            data_iter,                        # 数据迭代器
-            feature_dim,                      # 特征维度
-            num_epochs                        # 训练轮数
-        )
+    def momentum_method_StartFromScratch():
+        '''动量法：从零开始实现'''
+        def init_momentum_states(feature_dim):
+            ''' 动量状态初始化
+            根据特征维度，初始化动量法的状态参数
+            为每个可训练参数创建对应的动量变量v，初始化为0
+            '''
+            v_w = torch.zeros((feature_dim, 1)) # 权重w的动量状态（形状同w）
+            v_b = torch.zeros(1)                # 偏置b的动量状态（形状同b）
+            return (v_w, v_b)
 
-    # # 获取数据集的迭代器和特征维度，批量大小为10
-    # data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+        def sgd_momentum(params, states, hyperparams):
+            '''动量法优化器'''
+            for p, v in zip(params, states): # 同时遍历参数和对应的动量状态
+                with torch.no_grad():        # 禁用梯度跟踪（纯数值计算）
+                    # 动量更新：v_new = β * v_old + 当前梯度
+                    v[:] = hyperparams['momentum'] * v + p.grad # 原地更新动量状态（保持内存引用）
+                    # 参数更新：p_new = p_old - η * v_new
+                    p[:] -= hyperparams['lr'] * v # 原地更新参数值
+                p.grad.data.zero_()           # 清零梯度，准备下一轮计算（防止梯度累积）
 
-    # 中等动量，标准学习率。效果：平衡收敛速度与稳定性
-    train_momentum(0.02, 0.5) # 学习率0.02，动量系数0.5
+        def train_momentum(lr, momentum, num_epochs=2):
+            '''训练函数封装'''
+            common.train_ch11(
+                sgd_momentum,                    # 优化器函数
+                init_momentum_states(feature_dim), # 初始化动量状态
+                {'lr': lr, 'momentum': momentum}, # 超参数字典
+                data_iter,                        # 数据迭代器
+                feature_dim,                      # 特征维度
+                num_epochs                        # 训练轮数
+            )
 
-    # 强动量，降低学习率（避免震荡）。效果：更强记忆效应，需更小心控制步长
-    # 动量系数增加到0.9(相当于有效样本数量增加)，学习率略微降至0.01以确保可控
-    train_momentum(0.01, 0.9)
+        # # 获取数据集的迭代器和特征维度，批量大小为10
+        # data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
 
-    # 强动量，更小学习率（确保收敛）。效果：最稳定收敛，但可能稍慢
-    # 学习率再降至0.005，会产生良好的收敛性能
-    train_momentum(0.005, 0.9)
-# momentum_method_StartFromScratch()
+        # 中等动量，标准学习率。效果：平衡收敛速度与稳定性
+        train_momentum(0.02, 0.5) # 学习率0.02，动量系数0.5
 
-def momentum_method_SimpleImplementation():
-    '''动量法：简洁实现'''
-    trainer = torch.optim.SGD # 指定优化器类 (注意：是类引用，而非示例)
-    # PyTorch的torch.optim.SGD根据是否提供momentum参数，自动选择工作模式
-    # 这里提供了momentum参数，所以自动启用了动量法
-    # 内部实现：v = momentum * v + grad; p = p - lr * v
-    common.train_concise_ch11(trainer, {'lr': 0.005, 'momentum': 0.9}, data_iter)
-# momentum_method_SimpleImplementation()
+        # 强动量，降低学习率（避免震荡）。效果：更强记忆效应，需更小心控制步长
+        # 动量系数增加到0.9(相当于有效样本数量增加)，学习率略微降至0.01以确保可控
+        train_momentum(0.01, 0.9)
+
+        # 强动量，更小学习率（确保收敛）。效果：最稳定收敛，但可能稍慢
+        # 学习率再降至0.005，会产生良好的收敛性能
+        train_momentum(0.005, 0.9)
+    # momentum_method_StartFromScratch()
+
+    def momentum_method_SimpleImplementation():
+        '''动量法：简洁实现'''
+        trainer = torch.optim.SGD # 指定优化器类 (注意：是类引用，而非示例)
+        # PyTorch的torch.optim.SGD根据是否提供momentum参数，自动选择工作模式
+        # 这里提供了momentum参数，所以自动启用了动量法
+        # 内部实现：v = momentum * v + grad; p = p - lr * v
+        common.train_concise_ch11(trainer, {'lr': 0.005, 'momentum': 0.9}, data_iter)
+    # momentum_method_SimpleImplementation()
 
 
-# 可视化不同曲率（λ）下，梯度下降的收敛行为
-# 定义不同的曲率值（控制损失函数的陡峭程度）
-lambdas = [0.1, 1, 10, 19]  # λ值：从平缓到陡峭
-eta = 0.1 # 固定学习率为0.1
-plt.figure(figsize=(6, 4))  # 创建图形
-for lam in lambdas:         # 对每个λ值绘制收敛曲线
-    t = torch.arange(20).detach().numpy() # 创建时间序列：0到19（20个时间步）
-    # 计算每个时间步的收敛因子：(1 - ηλ)^t
-    plt.plot(t, (1 - eta * lam) ** t, label=f'lambda = {lam:.2f}')
-plt.xlabel('time')  # x轴：时间（迭代次数）
-plt.legend()        # 显示图例
-
+    # 可视化不同曲率（λ）下，梯度下降的收敛行为
+    # 定义不同的曲率值（控制损失函数的陡峭程度）
+    lambdas = [0.1, 1, 10, 19]  # λ值：从平缓到陡峭
+    eta = 0.1 # 固定学习率为0.1
+    plt.figure(figsize=(6, 4))  # 创建图形
+    for lam in lambdas:         # 对每个λ值绘制收敛曲线
+        t = torch.arange(20).detach().numpy() # 创建时间序列：0到19（20个时间步）
+        # 计算每个时间步的收敛因子：(1 - ηλ)^t
+        plt.plot(t, (1 - eta * lam) ** t, label=f'lambda = {lam:.2f}')
+    plt.xlabel('time')  # x轴：时间（迭代次数）
+    plt.legend()        # 显示图例
+# learn_momentum()
 
 
 
