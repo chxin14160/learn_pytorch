@@ -638,6 +638,79 @@ def learn_momentum():
 # learn_momentum()
 
 
+def learn_AdaGrad_algorithm():
+    '''AdaGrad算法'''
+    def adagrad_2d(x1, x2, s1, s2):
+        '''AdaGrad优化器实现（二维版本）
+        x1, x2: 当前参数值
+        s1, s2: 梯度平方累积状态（历史记忆）
+        '''
+        eps = 1e-6  # 小常数，防止除以零
+
+        # 1. 计算当前梯度（目标函数f(x1,x2)=0.1*x1²+2*x2²的梯度）
+        g1 = 0.2 * x1  # ∂f/∂x1 = 0.2*x1
+        g2 = 4 * x2    # ∂f/∂x2 = 4*x2
+
+        # 2. 累积梯度平方（AdaGrad核心：记忆历史梯度大小）
+        s1 += g1 ** 2  # 累积x1方向的梯度平方
+        s2 += g2 ** 2  # 累积x2方向的梯度平方
+
+        # 3. AdaGrad更新：参数 -= 学习率 / √(历史梯度平方和) * 当前梯度
+        x1 -= eta / math.sqrt(s1 + eps) * g1  # 自适应调整x1的学习率
+        x2 -= eta / math.sqrt(s2 + eps) * g2  # 自适应调整x2的学习率
+        return x1, x2, s1, s2  # 返回更新后的参数和状态
+
+    def f_2d(x1, x2):
+        '''目标函数：椭圆抛物面'''
+        return 0.1 * x1 ** 2 + 2 * x2 ** 2  # 最小值在(0,0)
+
+    eta = 0.4 # 中等学习率
+    common.show_trace_2d(f_2d, common.train_2d(adagrad_2d))
+
+    eta = 2 # 大学习率（测试AdaGrad的鲁棒性）
+    common.show_trace_2d(f_2d, common.train_2d(adagrad_2d))
+
+
+    def init_adagrad_states(feature_dim):
+        '''初始化AdaGrad的状态变量（梯度平方累积器）
+        为每个可训练参数创建对应的状态变量，用于记录历史梯度平方和
+        feature_dim: 特征维度（输入特征数量）
+        返回：(s_w, s_b): 权重和偏置的梯度平方累积状态
+        '''
+        s_w = torch.zeros((feature_dim, 1))  # 权重的梯度平方累积器（与w同形状）
+        s_b = torch.zeros(1)                 # 偏置的梯度平方累积器（与b同形状）
+        return (s_w, s_b)
+
+    def adagrad(params, states, hyperparams):
+        '''AdaGrad优化器实现
+        params: 待优化参数列表 [w, b]
+        states: 状态变量列表 [s_w, s_b]
+        hyperparams: 超参数字典 {'lr': 学习率}
+        '''
+        eps = 1e-6  # 小常数，防止除以零
+        for p, s in zip(params, states):  # 同时遍历参数和对应的状态
+            with torch.no_grad():         # 禁用梯度跟踪（纯数值计算）
+                # 累积梯度平方：s = s + (梯度)^2
+                s[:] += torch.square(p.grad)  # 原地更新，保持内存引用
+
+                # AdaGrad更新：参数 -= 学习率 * 梯度 / √(s + ε)
+                p[:] -= hyperparams['lr'] * p.grad / torch.sqrt(s + eps)
+            p.grad.data.zero_() # 清零当前梯度，准备下一轮计算
+
+    # 获取数据迭代器和特征维度（批量大小=10）
+    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+    common.train_ch11(adagrad, init_adagrad_states(feature_dim),
+                   {'lr': 0.1}, data_iter, feature_dim)
+
+    # 使用PyTorch官方实现的AdaGrad（对比验证）
+    trainer = torch.optim.Adagrad  # PyTorch内置AdaGrad优化器类
+    common.train_concise_ch11(trainer, {'lr': 0.1}, data_iter)
+# learn_AdaGrad_algorithm()
+
+
+
+
+
 
 
 
@@ -646,4 +719,5 @@ plt.tight_layout() # 自动调整子图参数，以避免标签、标题等元�
 plt.show()
 
 
-plt.pause(4444)  # 间隔的秒数： 4s
+plt.show(block=True)  # 阻塞显示，直到手动关闭窗口
+# plt.pause(4444)  # 间隔的秒数： 4s
