@@ -712,66 +712,68 @@ def learn_AdaGrad_algorithm():
 
 
 
-'''绘制gamma衰减曲线（理论分析）'''
-plt.figure(figsize=(8, 6))  # 创建第一个独立图表
-gammas = [0.95, 0.9, 0.8, 0.7] # 不同的衰减系数
-for gamma in gammas:
-    x = torch.arange(40).detach().numpy() # 时间序列：0到39
-    # 计算指数衰减权重：(1-γ) * γ^x
-    plt.plot(x, (1-gamma) * gamma ** x, label=f'gamma = {gamma:.2f}')
-plt.xlabel('time')
-plt.ylabel('权重')
-plt.title('RMSProp的记忆衰减效果 - 不同Gamma值的影响\n(越大记忆越长)')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.show()  # 显示第一个图
+def learn_RMSProp_algorithm():
+    '''RMSProp算法'''
+    '''绘制gamma衰减曲线（理论分析）'''
+    plt.figure(figsize=(8, 6))  # 创建第一个独立图表
+    gammas = [0.95, 0.9, 0.8, 0.7] # 不同的衰减系数
+    for gamma in gammas:
+        x = torch.arange(40).detach().numpy() # 时间序列：0到39
+        # 计算指数衰减权重：(1-γ) * γ^x
+        plt.plot(x, (1-gamma) * gamma ** x, label=f'gamma = {gamma:.2f}')
+    plt.xlabel('time')
+    plt.ylabel('权重')
+    plt.title('RMSProp的记忆衰减效果 - 不同Gamma值的影响\n(越大记忆越长)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()  # 显示第一个图
 
 
-'''RMSProp在2D问题上的可视化（算法演示）'''
-def rmsprop_2d(x1, x2, s1, s2):
-    '''2D RMSProp实现'''
-    g1, g2, eps = 0.2 * x1, 4 * x2, 1e-6  # 计算梯度
-    s1 = gamma * s1 + (1 - gamma) * g1 ** 2  # 更新梯度平方平均
-    s2 = gamma * s2 + (1 - gamma) * g2 ** 2
-    x1 -= eta / math.sqrt(s1 + eps) * g1     # RMSProp更新
-    x2 -= eta / math.sqrt(s2 + eps) * g2
-    return x1, x2, s1, s2
+    '''RMSProp在2D问题上的可视化（算法演示）'''
+    def rmsprop_2d(x1, x2, s1, s2):
+        '''2D RMSProp实现'''
+        g1, g2, eps = 0.2 * x1, 4 * x2, 1e-6  # 计算梯度
+        s1 = gamma * s1 + (1 - gamma) * g1 ** 2  # 更新梯度平方平均
+        s2 = gamma * s2 + (1 - gamma) * g2 ** 2
+        x1 -= eta / math.sqrt(s1 + eps) * g1     # RMSProp更新
+        x2 -= eta / math.sqrt(s2 + eps) * g2
+        return x1, x2, s1, s2
 
-def f_2d(x1, x2):
-    '''目标函数：椭圆碗'''
-    return 0.1 * x1 ** 2 + 2 * x2 ** 2
+    def f_2d(x1, x2):
+        '''目标函数：椭圆碗'''
+        return 0.1 * x1 ** 2 + 2 * x2 ** 2
 
-eta, gamma = 0.4, 0.9 # 学习率0.4，衰减系数0.9
-common.show_trace_2d(f_2d, common.train_2d(rmsprop_2d)) # 显示RMSProp优化轨迹(椭圆碗形函数)
+    eta, gamma = 0.4, 0.9 # 学习率0.4，衰减系数0.9
+    common.show_trace_2d(f_2d, common.train_2d(rmsprop_2d)) # 显示RMSProp优化轨迹(椭圆碗形函数)
 
 
-'''RMSProp在真实数据上的训练（实际应用）'''
-def init_rmsprop_states(feature_dim):
-    '''初始化RMSProp状态'''
-    s_w = torch.zeros((feature_dim, 1)) # 权重的梯度平方平均
-    s_b = torch.zeros(1)                # 偏置的梯度平方平均
-    return (s_w, s_b)
+    '''RMSProp在真实数据上的训练（实际应用）'''
+    def init_rmsprop_states(feature_dim):
+        '''初始化RMSProp状态'''
+        s_w = torch.zeros((feature_dim, 1)) # 权重的梯度平方平均
+        s_b = torch.zeros(1)                # 偏置的梯度平方平均
+        return (s_w, s_b)
 
-def rmsprop(params, states, hyperparams):
-    '''通用RMSProp实现'''
-    gamma, eps = hyperparams['gamma'], 1e-6
-    for p, s in zip(params, states):
-        with torch.no_grad():
-            # 指数加权平均更新
-            s[:] = gamma * s + (1 - gamma) * torch.square(p.grad)
-            # RMSProp参数更新
-            p[:] -= hyperparams['lr'] * p.grad / torch.sqrt(s + eps)
-        p.grad.data.zero_()
+    def rmsprop(params, states, hyperparams):
+        '''通用RMSProp实现'''
+        gamma, eps = hyperparams['gamma'], 1e-6
+        for p, s in zip(params, states):
+            with torch.no_grad():
+                # 指数加权平均更新
+                s[:] = gamma * s + (1 - gamma) * torch.square(p.grad)
+                # RMSProp参数更新
+                p[:] -= hyperparams['lr'] * p.grad / torch.sqrt(s + eps)
+            p.grad.data.zero_()
 
-# 获取数据迭代器和特征维度
-data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
-common.train_ch11(rmsprop, init_rmsprop_states(feature_dim),
-               {'lr': 0.01, 'gamma': 0.9}, data_iter, feature_dim)
+    # 获取数据迭代器和特征维度
+    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+    common.train_ch11(rmsprop, init_rmsprop_states(feature_dim),
+                   {'lr': 0.01, 'gamma': 0.9}, data_iter, feature_dim)
 
-trainer = torch.optim.RMSprop # 使用PyTorch内置RMSProp对比
-common.train_concise_ch11(trainer, {'lr': 0.01, 'alpha': 0.9},
-                       data_iter)
-
+    trainer = torch.optim.RMSprop # 使用PyTorch内置RMSProp对比
+    common.train_concise_ch11(trainer, {'lr': 0.01, 'alpha': 0.9},
+                           data_iter)
+# learn_RMSProp_algorithm()
 
 
 
