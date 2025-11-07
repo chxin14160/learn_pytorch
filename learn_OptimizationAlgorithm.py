@@ -711,7 +711,6 @@ def learn_AdaGrad_algorithm():
 # learn_AdaGrad_algorithm()
 
 
-
 def learn_RMSProp_algorithm():
     '''RMSProp算法'''
     '''绘制gamma衰减曲线（理论分析）'''
@@ -776,12 +775,59 @@ def learn_RMSProp_algorithm():
 # learn_RMSProp_algorithm()
 
 
+def learn_Adadelta_algorithm():
+    '''Adadelta算法'''
+    def init_adadelta_states(feature_dim):
+        ''' 初始化AdaDelta的状态变量
+        s：历史梯度平方平均（控制分母）
+        delta：历史参数变化平方平均（控制分子）
+        - s_w, s_b: 梯度平方的指数移动平均（类似RMSProp）
+        - delta_w, delta_b: 参数更新量的平方平均（AdaDelta特有）
+        返回：((s_w, delta_w), (s_b, delta_b))
+        '''
+        s_w = torch.zeros((feature_dim, 1))      # 权重梯度平方平均
+        s_b = torch.zeros(1)                     # 偏置梯度平方平均
+        delta_w = torch.zeros((feature_dim, 1))  # 权重更新量平方平均
+        delta_b = torch.zeros(1)                 # 偏置更新量平方平均
+        return ((s_w, delta_w), (s_b, delta_b))
+
+    def adadelta(params, states, hyperparams):
+        rho, eps = hyperparams['rho'], 1e-5 # ρ 衰减系数，ϵ 防除零小量
+        for p, (s, delta) in zip(params, states):
+            with torch.no_grad(): # 禁用梯度跟踪（纯数值计算）
+                # In-place updates via[:]
+                # 1. 更新梯度平方的指数移动平均（类似RMSProp）
+                # s = ρ·s_旧 + (1-ρ)·g²（梯度平方的加权平均）
+                s[:] = rho * s + (1 - rho) * torch.square(p.grad)
+
+                # 2. 计算自适应更新量（AdaDelta核心）
+                # 等效学习率 = √(Δx_历史² + ϵ) / √(g_历史² + ϵ)
+                # 用历史参数变化幅度来自动确定学习率
+                g = (torch.sqrt(delta + eps) / torch.sqrt(s + eps)) * p.grad
+
+                # 3. 更新参数
+                p[:] -= g  # 应用计算出的更新量
+
+                # 4. 更新参数变化量的平方平均（为下一步准备）
+                # 记录本次参数变化的幅度，用于下一步的自适应
+                delta[:] = rho * delta + (1 - rho) * g * g
+            p.grad.data.zero_() # 清零梯度，准备下一轮
+
+    # 获取数据迭代器和特征维度
+    data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+    common.train_ch11(adadelta, init_adadelta_states(feature_dim), # 优化器函数，初始化状态
+                   {'rho': 0.9}, data_iter, feature_dim)
+
+    trainer = torch.optim.Adadelta # 使用PyTorch内置AdaDelta
+    common.train_concise_ch11(trainer, {'rho': 0.9}, data_iter)
+# learn_Adadelta_algorithm()
+
+
 
 
 
 plt.tight_layout() # 自动调整子图参数，以避免标签、标题等元素重叠或溢出
 plt.show()
-
 
 plt.show(block=True)  # 阻塞显示，直到手动关闭窗口
 # plt.pause(4444)  # 间隔的秒数： 4s
