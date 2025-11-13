@@ -823,6 +823,85 @@ def learn_Adadelta_algorithm():
 # learn_Adadelta_algorithm()
 
 
+# def learn_Adam_algorithm():
+#     '''Adam算法'''
+def init_adam_states(feature_dim):
+    '''初始化Adam的状态变量
+    返回：((v_w, s_w), (v_b, s_b))
+    - v_w, v_b: 一阶矩估计（梯度动量）
+    - s_w, s_b: 二阶矩估计（梯度平方动量）
+    '''
+    # 权重的一阶矩（动量），偏置的一阶矩
+    # 权重的二阶矩（幅度），偏置的二阶矩
+    v_w, v_b = torch.zeros((feature_dim, 1)), torch.zeros(1)
+    s_w, s_b = torch.zeros((feature_dim, 1)), torch.zeros(1)
+    return ((v_w, s_w), (v_b, s_b))
+
+def adam(params, states, hyperparams):
+    '''Adam优化器实现
+    params: 待优化参数 [w, b]
+    states: 状态变量 [(v_w, s_w), (v_b, s_b)]
+    hyperparams: 超参数字典 {'lr': 学习率, 't': 时间步}
+    '''
+    beta1, beta2, eps = 0.9, 0.999, 1e-6 # 固定参数
+    for p, (v, s) in zip(params, states):  # 遍历每个参数及其状态
+        with torch.no_grad():  # 禁用梯度跟踪（纯数值计算）
+            # 1. 更新一阶矩（动量项）：v = β1*v + (1-β1)*grad
+            v[:] = beta1 * v + (1 - beta1) * p.grad
+
+            # 2. 更新二阶矩（幅度项）：s = β2*s + (1-β2)*grad²
+            s[:] = beta2 * s + (1 - beta2) * torch.square(p.grad)
+
+            # 3. 偏差校正（解决初始偏差问题）
+            v_bias_corr = v / (1 - beta1 ** hyperparams['t'])  # 一阶矩校正
+            s_bias_corr = s / (1 - beta2 ** hyperparams['t'])  # 二阶矩校正
+
+            # 4. Adam更新：param -= lr * (校正后动量) / sqrt(校正后幅度)
+            p[:] -= hyperparams['lr'] * v_bias_corr / (torch.sqrt(s_bias_corr) + eps)
+
+        p.grad.data.zero_()  # 清零梯度
+    hyperparams['t'] += 1 # 时间步增加（用于偏差校正）
+
+# 获取数据迭代器和特征维度
+data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+common.train_ch11(adam, init_adam_states(feature_dim), # 优化器函数，初始化状态
+               {'lr': 0.01, 't': 1}, data_iter, feature_dim)
+
+trainer = torch.optim.Adam # 使用PyTorch内置Adam
+common.train_concise_ch11(trainer, {'lr': 0.01}, data_iter)
+
+
+
+def yogi(params, states, hyperparams):
+    '''Yogi优化器（Adam的改进版本）
+    改进点：只修改二阶矩(s)的更新规则，增强对稀疏梯度的适应性
+    '''
+    beta1, beta2, eps = 0.9, 0.999, 1e-3 # eps稍大（1e-3 vs 1e-6）
+    for p, (v, s) in zip(params, states):
+        with torch.no_grad():
+            # 一阶矩更新（与Adam相同）
+            v[:] = beta1 * v + (1 - beta1) * p.grad
+
+            # ========== YOGI的核心改进 ==========
+            # 原Adam：s = β2*s + (1-β2)*grad²（简单加权平均）
+            # Yogi改进：自适应调整更新幅度，对异常梯度更鲁棒
+            s[:] = s + (1 - beta2) * torch.sign(
+                torch.square(p.grad) - s) * torch.square(p.grad)
+            # ===================================
+
+            # 偏差校正（与Adam相同）
+            v_bias_corr = v / (1 - beta1 ** hyperparams['t'])
+            s_bias_corr = s / (1 - beta2 ** hyperparams['t'])
+            # 参数更新（与Adam相同）
+            p[:] -= hyperparams['lr'] * v_bias_corr / (torch.sqrt(s_bias_corr)
+                                                       + eps)
+        p.grad.data.zero_()
+    hyperparams['t'] += 1
+
+# 获取数据迭代器和特征维度
+data_iter, feature_dim = common.get_data_ch11(downloader, batch_size=10)
+common.train_ch11(yogi, init_adam_states(feature_dim),
+               {'lr': 0.01, 't': 1}, data_iter, feature_dim)
 
 
 
