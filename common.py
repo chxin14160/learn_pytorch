@@ -5,7 +5,7 @@ from sympy import false
 from torch.utils.data import DataLoader, TensorDataset
 import torch
 from torch import nn
-from torchvision import datasets,transforms
+from torchvision import datasets, transforms
 
 # import matplotlib
 # # 强制使用 TkAgg 或 Qt5Agg 后端 (使用独立后端渲染)
