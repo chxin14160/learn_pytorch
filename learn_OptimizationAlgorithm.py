@@ -3,6 +3,8 @@ import torch
 import math
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
+from torch.optim import lr_scheduler
+from torch import nn
 import common
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'DejaVu Sans']
@@ -902,6 +904,266 @@ def learn_Adam_algorithm():
     common.train_ch11(yogi, init_adam_states(feature_dim),
                    {'lr': 0.01, 't': 1}, data_iter, feature_dim)
 # learn_Adam_algorithm()
+
+
+def learn_lr_scheduler():
+    '''学习率调度器'''
+    def net_fn():
+        '''定义LeNet-5模型（现代变种）
+        输入输出流：1x28x28→ 卷积 → 池化 → 卷积 → 池化 → 全连接 → 10分类
+        '''
+        model = nn.Sequential(
+            # 第一卷积层：1通道→6通道，5x5卷积，填充2保持尺寸((28-5+2*2)/1+1=28→尺寸不变)
+            nn.Conv2d(1, 6, kernel_size=5, padding=2), nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 下采样：28x28→14x14，（(28-2)/2+1=14）
+
+            # 第二卷积层：6通道→16通道，5x5卷积（(14-5)/1+1=10）
+            nn.Conv2d(6, 16, kernel_size=5), nn.ReLU(),  # 14x14→10x10
+            nn.MaxPool2d(kernel_size=2, stride=2),  # 下采样：10x10→5x5，（(10-2)/2+1=5）
+
+            # 全连接层
+            nn.Flatten(),                           # 展平：16x5x5=400维
+            nn.Linear(16 * 5 * 5, 120), nn.ReLU(),    # 400→120→120
+            nn.Linear(120, 84), nn.ReLU(),  # 120→84→84
+            nn.Linear(84, 10)  # 84→10。输出10个类别（Fashion-MNIST）
+        )
+        return model
+
+    loss = nn.CrossEntropyLoss() # 交叉熵损失，分类任务标准损失函数
+    device = common.try_gpu()
+
+    batch_size = 256 # 大批量训练，稳定收敛
+    train_iter, test_iter = common.load_data_fashion_mnist(batch_size=batch_size) # 训练集/数据集迭代器
+
+    # 代码几乎与common.train_ch6定义在卷积神经网络一章LeNet一节中的相同
+    def train(net, train_iter, test_iter, num_epochs, loss, trainer, device,
+              scheduler=None): # 关键：可选的学习率调度器
+        """ 通用训练函数（支持学习率调度）
+        net         : 神经网络模型
+        train_iter/test_iter: 训练/测试数据迭代器
+        num_epochs  : 训练轮数
+        loss        : 损失函数
+        trainer     : 优化器（SGD/Adam等）
+        device      : 计算设备（CPU/GPU）
+        scheduler   : 学习率调度器（可选）
+        """
+        net.to(device) # 模型移至指定设备（如GPU）
+        # 初始化动画绘图器，用于动态绘制损失和准确率曲线
+        animator = common.Animator(xlabel='epoch', xlim=[0, num_epochs],
+                                legend=['train loss', 'train acc', 'test acc'])
+
+        for epoch in range(num_epochs):
+            # Accumulator(3)：[train_loss训练损失总和、train_acc训练准确度总和、样本总数]
+            metric = common.Accumulator(3)  # train_loss,train_acc,num_examples
+            for i, (X, y) in enumerate(train_iter):
+                net.train() # 切换到训练模式（启用Dropout和BatchNorm的训练行为）
+                trainer.zero_grad() # 清空上一轮梯度
+
+                # 数据准备
+                X, y = X.to(device), y.to(device) # 将数据移动到设备
+                y_hat = net(X)      # 前向传播：模型预测
+                l = loss(y_hat, y)  # 计算损失（向量形式，每个样本一个损失值）
+                l.backward()        # 反向传播：计算梯度
+                trainer.step()      # 优化器：更新参数
+
+                # 计算本轮指标（无梯度计算，节省内存）
+                with torch.no_grad(): # 禁用梯度计算后累计指标
+                    metric.add(l * X.shape[0],      # 损失×批量大小（累加）
+                               common.accuracy(y_hat, y), # 准确率
+                               X.shape[0])                # 样本数
+
+                # 计算平均指标
+                train_loss = metric[0] / metric[2]  # 平均训练损失 = 总损失 / 总样本数
+                train_acc  = metric[1] / metric[2]  # 平均训练准确率 = 总正确数 / 总样本数
+                if (i + 1) % 50 == 0: # 每50轮更新一次训练曲线
+                    animator.add(epoch + i / len(train_iter),
+                                 (train_loss, train_acc, None))
+
+            # 每个epoch结束后评估测试集
+            test_acc = common.evaluate_accuracy_gpu(net, test_iter) # 测试集准确率
+            animator.add(epoch+1, (None, None, test_acc)) # 更新测试集准确率曲线
+
+            # ========== 关键代码：学习率调度 ==========
+            if scheduler:
+                if scheduler.__module__ == lr_scheduler.__name__:
+                    # Using PyTorchIn-Builtscheduler PyTorch内置调度器：标准调用方式
+                    scheduler.step()
+                else:
+                    # Using custom defined scheduler 自定义调度器：手动设置学习率
+                    for param_group in trainer.param_groups:
+                        param_group['lr'] = scheduler(epoch)
+            # ========================================
+
+        print(f'train loss {train_loss:.3f}, train acc {train_acc:.3f}, '
+              f'test acc {test_acc:.3f}')
+
+    lr, num_epochs = 0.3, 30 # 学习率，训练周期数
+
+    # 模型和优化器初始化
+    net = net_fn() # 创建LeNet实例
+    trainer = torch.optim.SGD(net.parameters(), lr=lr) # 优化器用 随机梯度下降
+
+    # 开始训练（不使用学习率调度器）
+    train(net, train_iter, test_iter, num_epochs, loss, trainer, device)
+
+
+    ''' 平方根衰减调度器
+    特点：
+    理论最优：凸优化问题的理论收敛保证
+    衰减较快：适合理论分析，实践中可能衰减过快
+    单调递减：学习率持续下降
+    '''
+    lr = 0.1  # 设置基础学习率为0.1
+    # 参数组：优化器可管理多个参数组，每个组可以有独立的学习率
+    # 这里设置第0组参数的学习率为0.1
+    trainer.param_groups[0]["lr"] = lr # 手动设置优化器的学习率(优化器参数组中的学习率)
+    print(f'learning rate is now {trainer.param_groups[0]["lr"]:.2f}')
+
+    class SquareRootScheduler:
+        '''平方根衰减调度器类'''
+        def __init__(self, lr=0.1):
+            self.lr = lr # 初始学习率
+
+        def __call__(self, num_update):
+            # 平方根衰减：lr_t = lr_0 / sqrt(t+1)
+            return self.lr * pow(num_update + 1.0, -0.5)
+
+    scheduler = SquareRootScheduler(lr=0.1) # 创建调度器实例
+    common.plot(torch.arange(num_epochs),
+                [scheduler(t) for t in range(num_epochs)]) # 绘制衰减曲线
+
+    # 使用该调度器训练
+    net = net_fn()
+    trainer = torch.optim.SGD(net.parameters(), lr)
+    train(net, train_iter, test_iter, num_epochs, loss, trainer, device,
+          scheduler)
+
+
+    ''' 因子衰减调度器
+    衰减曲线：
+    初始: 2.0 → 1.8 → 1.62 → 1.458 → ... → 0.01（停止）
+    应用场景：简单任务的稳定衰减
+    '''
+    class FactorScheduler:
+        '''因子衰减调度器
+        核心：学习率乘以固定系数（单因子）
+        "单因子"强调只有一个衰减系数，每步：new_lr = old_lr × 0.9
+        '''
+        def __init__(self, factor=1, stop_factor_lr=1e-7, base_lr=0.1):
+            self.factor = factor          # 衰减因子（如0.9表示每次×0.9）
+            self.stop_factor_lr = stop_factor_lr  # 停止衰减的阈值
+            self.base_lr = base_lr        # 当前学习率
+
+        def __call__(self, num_update):
+            # 每次调用：学习率乘以衰减因子，但不低于阈值
+            self.base_lr = max(self.stop_factor_lr, self.base_lr * self.factor)
+            return self.base_lr
+
+    # 示例：从2.0开始，每步×0.9，最低到0.01
+    scheduler = FactorScheduler(factor=0.9, stop_factor_lr=1e-2, base_lr=2.0)
+    common.plot(torch.arange(50), [scheduler(t) for t in range(50)])
+
+
+    ''' 多步衰减调度器
+    衰减模式：
+    0-14轮   : 0.5
+    15-29轮  : 0.5 × 0.5 = 0.25  
+    30轮后   : 0.25 × 0.5 = 0.125
+    优势：在训练关键阶段手动控制衰减时机
+    '''
+    net = net_fn()  # 创建LeNet模型实例
+    # 初始学习率：0.5（相对较大，适合初期快速收敛）
+    trainer = torch.optim.SGD(net.parameters(), lr=0.5)  # 使用SGD优化器，初始学习率0.5
+
+    # PyTorch内置 多步衰减调度器：在指定epoch处衰减
+    # milestones=[15, 30] 衰减里程碑：在第15和30个epoch进行学习率衰减
+    # gamma=0.5           衰减因子：每次衰减为当前学习率的50%
+    scheduler = lr_scheduler.MultiStepLR(trainer, milestones=[15, 30], gamma=0.5)
+
+    def get_lr(trainer, scheduler):
+        '''学习率获取函数（用于可视化）
+        为了绘制学习率曲线而设计，在实际训练中无需手动调用
+        '''
+        lr = scheduler.get_last_lr()[0]  # 获取当前参数组的学习率
+        trainer.step()                   # 优化器更新（实际训练中）模拟优化器更新(为正确推进调度器)
+        scheduler.step()                 # 调度器更新（调整学习率）推进调度器到下一状态
+        return lr
+
+    # 可视化学习率变化：生成阶梯状下降曲线，清晰显示在15、30epoch处的学习率跳变
+    common.plot(torch.arange(num_epochs), [get_lr(trainer, scheduler)
+                                      for t in range(num_epochs)])
+
+    # 使用多步衰减训练：将调度器传入train函数，在每轮训练后自动调整学习率
+    train(net, train_iter, test_iter, num_epochs, loss, trainer, device,
+          scheduler)
+
+
+    # 余弦退火调度器
+    class CosineScheduler:
+        '''余弦退火调度器'''
+        def __init__(self, max_update, base_lr=0.01, final_lr=0.0,
+                   warmup_steps=0, warmup_begin_lr=0.0):
+            # 学习率参数
+            self.base_lr_orig = base_lr    # 初始学习率（预热后的目标值）(预热结束后的起始学习率(峰值))
+            self.final_lr     = final_lr   # 最终学习率（衰减终点）(训练结束时的最终学习率)
+
+            # 训练进度参数
+            self.max_update      = max_update      # 总训练步数/轮数（包含预热）
+            self.warmup_steps    = warmup_steps    # 预热步数，即慢慢加速阶段(预热阶段步数(0表示无预热))
+            self.warmup_begin_lr = warmup_begin_lr # 预热起始学习率
+
+            self.max_steps = self.max_update - self.warmup_steps # 实际衰减步数(纯衰减阶段轮数)
+
+        def get_warmup_lr(self, epoch):
+            '''预热阶段方法，获取预热阶段中，当前步所对应的学习率
+            '''
+            # 线性预热：从warmup_begin_lr线性增加到base_lr_orig
+            # 线性预热公式：lr = 起始值 + (目标值-起始值) × (当前步/总预热步)
+            # 即：lr = 最开始的原始值 + 预热过程中要变化的幅度 × 当前不在预热总时间里的比值
+            increase = (self.base_lr_orig - self.warmup_begin_lr) \
+                           * float(epoch) / float(self.warmup_steps)
+            return self.warmup_begin_lr + increase
+
+        def __call__(self, epoch):
+            '''核心：余弦退火方法'''
+            if epoch < self.warmup_steps: # 还在预热期，则线性增加(慢慢加速)
+                return self.get_warmup_lr(epoch) # 预热阶段
+            if epoch <= self.max_update: # 预热期结束，在正式训练阶段
+                # 核心：余弦退火公式
+                # 进度 = (当前轮次 - 预热步数) / 总衰减步数
+                # 平滑因子 = (1 + cos(π × 进度)) / 2  # 从1→0平滑变化
+                # 学习率 = 最终学习率 + (初始学习率 - 最终学习率) × 平滑因子
+                self.base_lr = self.final_lr + (
+                    self.base_lr_orig - self.final_lr) * (1 + math.cos(
+                    math.pi * (epoch - self.warmup_steps) / self.max_steps)) / 2
+            return self.base_lr
+
+    # 使用示例：20轮内从0.3余弦衰减到0.01
+    # 这里预热步数为默认值0，即无预热阶段
+    scheduler = CosineScheduler(max_update=20, # 训练20轮
+                                base_lr=0.3,   # 训练阶段的起始学习率为0.5
+                                final_lr=0.01) # 训练结束时的最终学习率，即衰减终点为0.01
+    common.plot(torch.arange(num_epochs), [scheduler(t) for t in range(num_epochs)])
+
+    net = net_fn()
+    trainer = torch.optim.SGD(net.parameters(), lr=0.3)
+    train(net, train_iter, test_iter, num_epochs, loss, trainer, device,
+          scheduler)
+
+
+    # 带预热的余弦退火
+    # 前5轮预热，然后15轮余弦衰减
+    scheduler = CosineScheduler(20,  # 总共训练20轮(包含预热)
+                                warmup_steps=5, # 前5轮预热
+                                base_lr=0.3,    # 预热后的目标学习率，即峰值为0.3
+                                final_lr=0.01)  # 训练结束的最终学习率，即衰减终点为0.01
+    common.plot(torch.arange(num_epochs), [scheduler(t) for t in range(num_epochs)])
+
+    net = net_fn()
+    trainer = torch.optim.SGD(net.parameters(), lr=0.3)
+    train(net, train_iter, test_iter, num_epochs, loss, trainer, device,
+          scheduler)
+# learn_lr_scheduler()
 
 
 plt.tight_layout() # 自动调整子图参数，以避免标签、标题等元素重叠或溢出
