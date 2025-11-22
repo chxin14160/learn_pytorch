@@ -1005,6 +1005,25 @@ class Timer:  # @save
         return np.array(self.times).cumsum().tolist()
 
 
+class Benchmark:
+    """上下文管理器：用于测量运行时间（度量时间）"""
+    def __init__(self, description='Done'):
+        self.description = description # 测试描述文本
+
+    def __enter__(self):
+        """进入with代码块时调用
+        作用：
+            准备资源（打开文件、连接数据库等）
+            返回要在with块中使用的对象
+        通常返回要使用的对象（可以是self或其他）"""
+        self.timer = Timer() # 创建计时器，开始计时
+        return self
+
+    def __exit__(self, *args):
+        """离开with代码块时调用"""
+        print(f'{self.description}: {self.timer.stop():.4f} sec') # 停止计时并输出
+
+
 # 实用程序类，示例中创建两个变量：正确预测的数量 和 预测总数
 class Accumulator:  # @save
     """在n个变量上累加"""
