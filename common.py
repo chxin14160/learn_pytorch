@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import torch
 from torch import nn
 from torchvision import datasets, transforms
+from PIL import Image
 
 # import matplotlib
 # # 强制使用 TkAgg 或 Qt5Agg 后端 (使用独立后端渲染)
@@ -90,6 +91,51 @@ def synthetic_data(w, b, num_examples):  # @save
     y += torch.normal(0, 0.01, y.shape)  # 添加噪声（均值为0，标准差为0.01的正态分布）使数据更接近真实场景（避免完全线性可分）
     return X, y.reshape((-1, 1))  # 返回特征矩阵X和标签向量y, y.reshape((-1, 1)) 确保y是列向量（形状为 (num_examples, 1)）
 
+
+def show_images(images, num_rows, num_cols, scale=1.5,
+                title=None, titles=None,
+                title_fontsize=16, subtitle_fontsize=10):
+    """显示多张图像的网格布局
+    支持 Tensor/PIL Image/NumPy Array 多种图像格式
+    images  : 图像列表(Tensor、PIL图像或NumPy数组)
+    num_rows: 图像网格的行数
+    num_cols: 图像网格的列数
+    scale   : 图像缩放比例(控制每个子图的大小)
+    title   : 整个图像的大标题
+    titles  : 每个子图的标题列表
+    title_fontsize      : 总标题字体大小
+    subtitle_fontsize   : 子标题字体大小
+    """
+    figsize = (num_cols * scale, num_rows * scale)
+    _, axes = plt.subplots(num_rows, num_cols, figsize=figsize) # 子图画布
+    # 扁平化axes数组以便遍历
+    # 多图情况：4x2网格 → axes是2D数组 → 展平为1D列表
+    # 单图情况：1x1网格 → axes是单个对象 → 包装成列表
+    axes = axes.flatten() if num_rows > 1 or num_cols > 1 else [axes]
+
+    if title: # 总标题
+        plt.suptitle(title, fontsize=title_fontsize,
+                     fontweight='bold', # 字体加粗
+                     y=0.95)            # 标题距离顶部的比例（0-1之间）
+    for i, (ax, img) in enumerate(zip(axes, images)):
+        # 转换为numpy数组并显示
+        if torch.is_tensor(img):            # Tensor图像处理
+            img = img.permute(1, 2, 0).numpy()  # CHW → HWC
+            # 处理单通道图像
+            if img.ndim == 3 and img.shape[2] == 1:
+                img = img.squeeze(2) # 移除大小为1的维度
+        elif isinstance(img, Image.Image):  # PIL图像处理
+            img = np.array(img) # 将PIL图像转换为NumPy数组供Matplotlib显示
+
+        ax.imshow(img) # 显示图像
+        ax.axes.get_xaxis().set_visible(False) # 隐藏坐标轴
+        ax.axes.get_yaxis().set_visible(False) # 隐藏坐标轴
+        if titles and i < len(titles): # 添加子图标题
+            ax.set_title(titles[i], fontsize=subtitle_fontsize,
+                         pad=5) # 标题与图像的间距（单位：点）
+
+    plt.tight_layout() # 动调整子图间距，避免重叠
+    plt.show()
 
 def annotate(text, xy, xytext, ax=None, fontsize=10, arrowprops=None):
     '''在图中添加带箭头的注释（增强版）
