@@ -394,6 +394,44 @@ def load_array(data_arrays, batch_size, is_train=True):
     return DataLoader(dataset, batch_size, shuffle=is_train)
 
 
+def get_dataloader_workers():
+    """ 获取数据加载的工作进程数（替代d2l.get_dataloader_workers）
+    返回: int: 根据CPU核心数优化的worker数量
+    """
+    import multiprocessing
+    # 根据CPU核心数动态调整，避免过多worker导致系统负载过高
+    return min(4, multiprocessing.cpu_count() // 2)  # 取CPU核心数的一半，最多4个
+
+
+def load_cifar10(is_train, augs, batch_size, data_dir="../data"):
+    """ 加载CIFAR-10数据集（完整版本）
+    is_train    : 是否为训练集（True=训练集，False=测试集）
+    augs        : 数据增强变换
+    batch_size  : 批次大小
+    data_dir    : 数据存储目录
+    返回: DataLoader: PyTorch数据加载器
+    """
+    # 创建数据目录（若不存在）
+    os.makedirs(data_dir, exist_ok=True)
+
+    # 加载CIFAR-10数据集
+    dataset = torchvision.datasets.CIFAR10(
+        root=data_dir,
+        train=is_train,
+        transform=augs,
+        download=True) # 自动下载（若不存在）
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=is_train,   # 训练集打乱，测试集不打乱
+        num_workers=get_dataloader_workers(), # 并行加载进程数
+        pin_memory=True)    # 使用固定内存(加速GPU传输)
+    print(f"✅ 加载{'训练' if is_train else '测试'}集: "
+          f"{len(dataset)}张图像, 批次大小: {batch_size}, "
+          f"Worker数量: {get_dataloader_workers()}")
+    return dataloader
+
+
 # 定义优化算法
 '''
 # 实现小批量随机梯度下降（Stochastic Gradient Descent, SGD）优化算法
