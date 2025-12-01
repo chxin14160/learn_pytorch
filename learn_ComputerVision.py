@@ -94,23 +94,25 @@ def demonstrate_augmentation_methods():
 # demonstrate_augmentation_methods()
 
 
-all_images = torchvision.datasets.CIFAR10(
-    train=True,           # 加载训练集（False为测试集）
-    root="../data",       # 数据存储目录
-    download=True)        # 若数据不存在，自动下载
-common.show_images([all_images[i][0] for i in range(32)], # 获取前32张图像
-                   4, 8,      # 4行8列网格
-                   scale=0.8) # 图像缩放比例
+def learn_Multi_GPU_training():
+    '''多GPU训练'''
+    all_images = torchvision.datasets.CIFAR10(
+        train=True,           # 加载训练集（False为测试集）
+        root="../data",       # 数据存储目录
+        download=True)        # 若数据不存在，自动下载
+    common.show_images([all_images[i][0] for i in range(32)], # 获取前32张图像
+                       4, 8,      # 4行8列网格
+                       scale=0.8) # 图像缩放比例
 
-# 训练集增强：只对训练样本图像增广，这里只使用最简单的随机左右翻转
-train_augs = torchvision.transforms.Compose([
-     torchvision.transforms.RandomHorizontalFlip(), # 水平翻转（50%概率）
-     torchvision.transforms.ToTensor()])            # 转为Tensor（0-1范围）
+    # 训练集增强：只对训练样本图像增广，这里只使用最简单的随机左右翻转
+    train_augs = torchvision.transforms.Compose([
+         torchvision.transforms.RandomHorizontalFlip(), # 水平翻转（50%概率）
+         torchvision.transforms.ToTensor()])            # 转为Tensor（0-1范围）
 
-# 测试集增强：预测过程中不使用随机操作的图像增广，ToTensor将图像转为深度学习框架所要求的格式
-test_augs = torchvision.transforms.Compose([
-     torchvision.transforms.ToTensor()]) # 仅转换
-
+    # 测试集增强：预测过程中不使用随机操作的图像增广，ToTensor将图像转为深度学习框架所要求的格式
+    test_augs = torchvision.transforms.Compose([
+         torchvision.transforms.ToTensor()]) # 仅转换
+# learn_Multi_GPU_training()
 
 
 
@@ -122,39 +124,108 @@ DATA_HUB['hotdog'] = (DATA_URL + 'hotdog.zip', # 完整下载URL（DATA_URL是d2
 # 下载并解压数据集（若本地不存在）：自动从DATA_HUB下载压缩包并解压到本地缓存目录
 data_dir = downloader.download_extract('hotdog')
 
-# 演示微调：热狗识别
-# 使用ImageFolder加载数据集
-train_imgs = torchvision.datasets.ImageFolder(os.path.join(data_dir, 'train'))
-test_imgs  = torchvision.datasets.ImageFolder(os.path.join(data_dir, 'test'))
+def learn_Hot_dog_recognition():
+    '''演示微调：热狗识别'''
+    # 使用ImageFolder加载数据集
+    train_imgs = torchvision.datasets.ImageFolder(os.path.join(data_dir, 'train'))
+    test_imgs  = torchvision.datasets.ImageFolder(os.path.join(data_dir, 'test'))
 
-# 准备可视化样本 并 显示对比图像
-hotdogs     = [train_imgs[i][0] for i in range(8)]      # 前8张热狗图片
-not_hotdogs = [train_imgs[-i - 1][0] for i in range(8)] # 后8张非热狗图片
-common.show_images(hotdogs + not_hotdogs, 2, 8, scale=1.4)
-
-
-# 使用RGB通道的均值和标准差，以标准化每个通道
-# 将图像从 [0,1] 范围标准化到接近 [-1,1]
-# 标准化公式: (输入 - 均值) / 标准差
-normalize = torchvision.transforms.Normalize(
-    mean=[0.485, 0.456, 0.406], # ImageNet数据集的均值
-    std=[0.229, 0.224, 0.225])  # ImageNet数据集的标准差
-
-# 训练数据处理：随机性 + 多样性 → 提高泛化
-train_augs = torchvision.transforms.Compose([
-    torchvision.transforms.RandomResizedCrop(224),  # 随机缩放裁剪：随机裁剪大小长宽后缩放至目标尺寸(尺度不变性+位置不变性)
-    torchvision.transforms.RandomHorizontalFlip(),  # 随机水平翻转(镜像对称不变性)
-    torchvision.transforms.ToTensor(),              # 转为Tensor(0-1范围float32),(C,H,W) [通道优先]
-    normalize])                                     # 标准化(加速收敛 + 训练稳定)
-
-# 测试数据处理：确定性 + 一致性 → 准确评估
-test_augs = torchvision.transforms.Compose([
-    torchvision.transforms.Resize([256, 256]),  # 调整尺寸：统一缩放至224*224
-    torchvision.transforms.CenterCrop(224),     # 中心裁剪：从图像中心裁剪固定区域
-    torchvision.transforms.ToTensor(),          # 转为Tensor（0-1范围float32),(C,H,W) [通道优先]
-    normalize])                                 # 标准化
+    # 准备可视化样本 并 显示对比图像
+    hotdogs     = [train_imgs[i][0] for i in range(8)]      # 前8张热狗图片
+    not_hotdogs = [train_imgs[-i - 1][0] for i in range(8)] # 后8张非热狗图片
+    common.show_images(hotdogs + not_hotdogs, 2, 8, scale=1.4)
 
 
+    # 使用RGB通道的均值和标准差，以标准化每个通道
+    # 将图像从 [0,1] 范围标准化到接近 [-1,1]
+    # 标准化公式: (输入 - 均值) / 标准差
+    normalize = torchvision.transforms.Normalize(
+        mean=[0.485, 0.456, 0.406], # ImageNet数据集的均值
+        std=[0.229, 0.224, 0.225])  # ImageNet数据集的标准差
+
+    # 训练数据处理：随机性 + 多样性 → 提高泛化
+    train_augs = torchvision.transforms.Compose([
+        torchvision.transforms.RandomResizedCrop(224),  # 随机缩放裁剪：随机裁剪大小长宽后缩放至目标尺寸(尺度不变性+位置不变性)
+        torchvision.transforms.RandomHorizontalFlip(),  # 随机水平翻转(镜像对称不变性)
+        torchvision.transforms.ToTensor(),              # 转为Tensor(0-1范围float32),(C,H,W) [通道优先]
+        normalize])                                     # 标准化(加速收敛 + 训练稳定)
+
+    # 测试数据处理：确定性 + 一致性 → 准确评估
+    test_augs = torchvision.transforms.Compose([
+        torchvision.transforms.Resize([256, 256]),  # 调整尺寸：统一缩放至224*224
+        torchvision.transforms.CenterCrop(224),     # 中心裁剪：从图像中心裁剪固定区域
+        torchvision.transforms.ToTensor(),          # 转为Tensor（0-1范围float32),(C,H,W) [通道优先]
+        normalize])                                 # 标准化
+
+    # 加载预训练模型：下载并加载在ImageNet上预训练的ResNet-18模型
+    ''' pretrained=True 使用在ImageNet上训练好的权重
+    加载过程：
+    1. 检查本地缓存是否有预训练权重
+    2. 若没有，自动从PyTorch服务器下载
+    3. 加载权重到模型结构
+    4. 返回完整的预训练模型
+    '''
+    pretrained_net = torchvision.models.resnet18(pretrained=True)
+
+    print(f"模型的最后一层(全连接层)结构：{pretrained_net.fc}")
+
+    # 创建微调模型(重新加载模型，而非在原有模型上修改)
+    finetune_net = torchvision.models.resnet18(pretrained=True)
+    # 修改分类层：将1000类分类器替换为2类分类器（热狗 vs 非热狗）
+    finetune_net.fc = nn.Linear(finetune_net.fc.in_features, 2)
+    # 初始化新分类层：使用Xavier均匀分布初始化新分类层的权重
+    nn.init.xavier_uniform_(finetune_net.fc.weight)
+
+
+    # 若param_group=True，则输出层中的模型参数将使用十倍的学习率（差异化学习率）
+    def train_fine_tuning(net, learning_rate,           # 要训练的模型(已修改最后一层)，学习率
+                          batch_size=128, num_epochs=5, # 批次大小，训练轮数
+                          param_group=True):            # 是否使用参数分组（差异化学习率）
+        # 创建数据加载器
+        train_iter = torch.utils.data.DataLoader(
+            torchvision.datasets.ImageFolder(
+                os.path.join(data_dir, 'train'),
+                transform=train_augs), # 训练集增强
+            batch_size=batch_size,
+            shuffle=True) # 训练集打乱
+        test_iter = torch.utils.data.DataLoader(
+            torchvision.datasets.ImageFolder(
+                os.path.join(data_dir, 'test'),
+                transform=test_augs), # 测试集增强
+            batch_size=batch_size,
+            shuffle=False) # 测试集不打乱
+        devices = common.try_all_gpus() # 设备配置：自动检测可用的GPU设备，支持多GPU训练
+        # 默认：reduction="mean"→ 返回批次损失的平均值
+        # 当前：reduction="none"→ 返回每个样本的损失
+        loss = nn.CrossEntropyLoss(reduction="none")
+        if param_group: # 若需参数分组
+            # 提取特征提取器参数（除最后一层外的所有参数）
+            params_1x = [param for name, param in net.named_parameters()
+                 if name not in ["fc.weight", "fc.bias"]]
+            # 创建优化器，不同参数组使用不同学习率
+            trainer = torch.optim.SGD([
+                # 组1：特征提取器参数（小学习率微调）(初始化为源模型相应层的模型参数 ∴只需微调)
+                {'params': params_1x}, # 使用外层lr（默认），即learning_rate小学习率
+                # 组2：分类器参数（大学习率快速学习）(新的输出层参数随机初始化 ∴需大步进以加快速度)
+                {'params': net.fc.parameters(), 'lr': learning_rate * 10}
+            ], lr=learning_rate, weight_decay=0.001)
+        else: #  统一学习率（对比基准）
+            trainer = torch.optim.SGD(net.parameters(),     # 所有参数
+                                      lr=learning_rate,     # 统一学习率
+                                      weight_decay=0.001)   # L2正则化
+        common.train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs,
+                       devices)
+
+    # train_fine_tuning(finetune_net, 5e-5) # 开始训练
+# learn_Hot_dog_recognition()
+
+
+
+# def learn_object_detection_and_bounding_boxes():
+#     '''目标检测和边界框'''
+plt.figure(figsize=(5, 3))
+img = plt.imread('./img/catdog.jpg') # 当前py文件同路径的img文件夹中
+plt.imshow(img)
 
 
 
@@ -164,6 +235,7 @@ test_augs = torchvision.transforms.Compose([
 
 
 
+plt.tight_layout() # 自动调整子图参数，以避免标签、标题等元素重叠或溢出
+plt.show()
 
-
-
+plt.show(block=True)  # 阻塞显示，直到手动关闭窗口
