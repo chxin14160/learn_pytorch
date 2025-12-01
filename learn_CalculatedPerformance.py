@@ -191,7 +191,7 @@ with common.Benchmark('torch (PyTorch GPU同步测试)'):  # 默认描述
     for _ in range(10):
         a = torch.randn(size=(1000, 1000), device=device)
         b = torch.mm(a, a)
-    # 我安装的PyTorch是cpu版本，所以没有CUDA支持，无法使用GPU。故该句注释
+    # 若安装的PyTorch是cpu版本，则没有CUDA支持，无法使用GPU。则下句需注释
     torch.cuda.synchronize(device)  # 等待所有GPU操作完成
 
 # 验证GPU计算正确性
