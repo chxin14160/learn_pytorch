@@ -159,6 +159,10 @@ def learn_Compilers_and_interpreters():
 learn_Compilers_and_interpreters()
 
 
+
+
+
+
 ''' GPU性能对比测试
 展示计算的性能差异：PyTorch GPU计算 vs NumPy CPU '''
 # GPU计算热身
@@ -188,7 +192,7 @@ with common.Benchmark('torch (PyTorch GPU同步测试)'):  # 默认描述
         a = torch.randn(size=(1000, 1000), device=device)
         b = torch.mm(a, a)
     # 我安装的PyTorch是cpu版本，所以没有CUDA支持，无法使用GPU。故该句注释
-    # torch.cuda.synchronize(device)  # 等待所有GPU操作完成
+    torch.cuda.synchronize(device)  # 等待所有GPU操作完成
 
 # 验证GPU计算正确性
 # 预期输出：tensor([[3., 3.]], device='cuda:0')
