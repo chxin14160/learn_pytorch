@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.nn import functional as F
 import common
 
 import os
@@ -285,6 +286,105 @@ def learn_automatic_parallelism():
         - 而非计算时间+传输时间
         """
 # learn_automatic_parallelism()
+
+
+
+# 初始化模型参数
+scale = 0.01 # 控制参数初始化的缩放因子，防止梯度爆炸
+
+# 卷积层1参数：输入通道1，输出通道20，3x3卷积核
+W1 = torch.randn(size=(20, 1, 3, 3)) * scale  # 权重（随机初始化）
+b1 = torch.zeros(20)                          # 偏置（初始为0）
+
+# 卷积层2参数：输入通道20，输出通道50，5x5卷积核
+W2 = torch.randn(size=(50, 20, 5, 5)) * scale
+b2 = torch.zeros(50)
+
+# 全连接层1参数：800维输入，128维输出
+W3 = torch.randn(size=(800, 128)) * scale
+b3 = torch.zeros(128)
+
+# 全连接层2参数：128维输入，10维输出（对应10分类）
+W4 = torch.randn(size=(128, 10)) * scale
+b4 = torch.zeros(10)
+params = [W1, b1, W2, b2, W3, b3, W4, b4] # 所有参数列表
+
+
+# 定义模型
+def lenet(X, params):
+    """LeNet-5模型实现（手动参数管理版本）
+    X: 输入张量 (batch_size, 1, 28, 28)
+    params: 包含所有参数的列表 [W1,b1,W2,b2,W3,b3,W4,b4]
+    """
+    # 第一层：卷积 → ReLU → 平均池化
+    h1_conv = F.conv2d(input=X, weight=params[0], bias=params[1])  # 卷积
+    h1_activation = F.relu(h1_conv)                                # 激活
+    h1 = F.avg_pool2d(input=h1_activation, kernel_size=(2, 2), stride=(2, 2)) # 池化
+
+    # 第二层：卷积 → ReLU → 平均池化
+    h2_conv = F.conv2d(input=h1, weight=params[2], bias=params[3])
+    h2_activation = F.relu(h2_conv)
+    h2 = F.avg_pool2d(input=h2_activation, kernel_size=(2, 2), stride=(2, 2))
+
+    # 展平后进入全连接层
+    h2 = h2.reshape(h2.shape[0], -1)  # (batch_size, 50 * 4 * 4=800)
+
+    # 全连接层1：线性变换 → ReLU
+    h3_linear = torch.mm(h2, params[4]) + params[5] # 矩阵乘法
+    h3 = F.relu(h3_linear)
+
+    # 输出层：线性变换（无激活函数）
+    y_hat = torch.mm(h3, params[6]) + params[7]
+    return y_hat
+
+# 交叉熵损失函数（reduction='none'表示不自动求平均/求和）
+loss = nn.CrossEntropyLoss(reduction='none')
+
+def get_params(params, device):
+    """将参数移动到指定设备并启用梯度计算
+    params: 参数列表
+    device: 目标设备（如'cuda:0'）
+    """
+    new_params = [p.to(device) for p in params] # 移动到设备
+    for p in new_params:
+        p.requires_grad_() # 启用梯度跟踪
+    return new_params
+
+# 示例：将参数移动到GPU 0
+new_params = get_params(params, common.try_gpu(0))
+print('b1 权重:', new_params[1])      # 打印偏置参数
+print('b1 梯度:', new_params[1].grad) # 打印梯度（初始为None）
+
+def allreduce(data):
+    """多GPU梯度聚合（简化版实现）
+    data: 包含各GPU上张量的列表 [tensor_gpu0, tensor_gpu1, ...]
+    """
+    # 梯度求和：将所有GPU的数据累加到GPU 0
+    for i in range(1, len(data)):
+        data[0][:] += data[i].to(data[0].device) # 注意[:]原地操作
+
+    # 广播结果：将GPU 0的结果复制回其他GPU
+    for i in range(1, len(data)):
+        data[i][:] = data[0].to(data[i].device)
+
+# 测试AllReduce
+data = [torch.ones((1, 2), device=common.try_gpu(i)) * (i + 1) for i in range(2)]
+print('allreduce之前：\n', data[0], '\n', data[1])
+"""
+输出示例（假设有2个GPU）：
+tensor([[1., 1.]], device='cuda:0') 
+tensor([[2., 2.]], device='cuda:1')
+"""
+allreduce(data)
+print('allreduce之后：\n', data[0], '\n', data[1])
+"""
+输出示例：
+tensor([[3., 3.]], device='cuda:0')  # 1+2=3
+tensor([[3., 3.]], device='cuda:1')  # 从GPU0同步
+"""
+
+
+
 
 
 
