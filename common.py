@@ -1058,6 +1058,53 @@ def masked_softmax(X, valid_lens):
         return nn.functional.softmax(X.reshape(shape), dim=-1)
 
 
+def box_corner_to_center(boxes):
+    """ 角点表示法 转 中心表示法
+    从（左上，右下）转换到（中间，宽度，高度）
+    输入: [x1, y1, x2, y2] ← 左上角(x1,y1) 右下角(x2,y2)
+    输出: [cx, cy, w, h]   ← 中心点(cx,cy) 宽度(w) 高度(h)
+    """
+    # 解包边界框的四个坐标值
+    x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    cx = (x1 + x2) / 2  # 中心坐标x
+    cy = (y1 + y2) / 2  # 中心坐标y
+    w = x2 - x1         # 宽
+    h = y2 - y1         # 高
+    # 重新堆叠成新格式
+    boxes = torch.stack((cx, cy, w, h), axis=-1)
+    return boxes
+
+def box_center_to_corner(boxes):
+    """ 中心表示法 转 角点表示法
+    从（中间，宽度，高度）转换到（左上，右下）
+    输入: [cx, cy, w, h]   ← 中心点(cx,cy) 宽度(w) 高度(h)
+    输出: [x1, y1, x2, y2] ← 左上角(x1,y1) 右下角(x2,y2)
+    """
+    # 解包中心表示法的四个值
+    cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
+    x1 = cx - 0.5 * w   # 左上x
+    y1 = cy - 0.5 * h   # 左上y
+    x2 = cx + 0.5 * w   # 右下x
+    y2 = cy + 0.5 * h   # 右下y
+    # 重新堆叠成角点格式
+    boxes = torch.stack((x1, y1, x2, y2), axis=-1)
+    return boxes
+
+def bbox_to_rect(bbox, color):
+    """ 角点表示法 转 matplotlib的Rectangle对象
+    bbox: [x1, y1, x2, y2] 角点表示法
+    转换为: (左上角点, 宽度, 高度) ← matplotlib需要的格式
+    """
+    # 将边界框(左上x,左上y,右下x,右下y)格式转换成matplotlib格式：
+    # ((左上x,左上y),宽,高)
+    return plt.Rectangle(
+        xy=(bbox[0], bbox[1]),      # 左上角坐标
+        width =bbox[2]-bbox[0],     # 宽度 = x2 - x1
+        height=bbox[3]-bbox[1],     # 高度 = y2 - y1
+        fill=False,                 # 不填充（透明）
+        edgecolor=color, linewidth=2) # 边框颜色/宽度
+
+
 # 计时器
 class Timer:  # @save
     """记录多次运行时间"""

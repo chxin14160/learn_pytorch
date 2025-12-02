@@ -221,16 +221,27 @@ def learn_Hot_dog_recognition():
 
 
 
-# def learn_object_detection_and_bounding_boxes():
-#     '''目标检测和边界框'''
-plt.figure(figsize=(5, 3))
-img = plt.imread('./img/catdog.jpg') # 当前py文件同路径的img文件夹中
-plt.imshow(img)
+def learn_object_detection_and_bounding_boxes():
+    '''目标检测和边界框'''
+    plt.figure(figsize=(5, 3))
+    img = plt.imread('./img/catdog.jpg') # 当前py文件同路径的img文件夹中
+    plt.imshow(img)
 
+    # bbox是边界框的英文缩写
+    # dog_bbox, cat_bbox = [60.0, 45.0, 378.0, 516.0], [400.0, 112.0, 655.0, 493.0]
+    dog_bbox, cat_bbox = [50.0, 35.0, 420.0, 550.0], [435.0, 115.0, 723.0, 520.0]
 
+    # 将边界框列表转换为PyTorch张量
+    boxes = torch.tensor((dog_bbox, cat_bbox))
+    # 验证转换的可逆性：角点↔中心点↔角点应该得到原始值
+    same = common.box_center_to_corner(common.box_corner_to_center(boxes)) == boxes
+    print(f"角点↔中心点↔角点后是否得到原始值：\n{same}")
 
-
-
+    # 显示原始图像，并在图上添加狗(蓝)猫(红)的边界框
+    fig = plt.imshow(img)
+    fig.axes.add_patch(common.bbox_to_rect(dog_bbox, 'blue'))
+    fig.axes.add_patch(common.bbox_to_rect(cat_bbox, 'red'))
+# learn_object_detection_and_bounding_boxes()
 
 
 
