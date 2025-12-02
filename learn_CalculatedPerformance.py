@@ -227,11 +227,64 @@ def learn_automatic_parallelism():
         run(x_gpu1)  # 启动GPU1计算
         run(x_gpu2)  # 立即启动GPU2计算 ← 关键并行点
         torch.cuda.synchronize() # 等待所有GPU操作完成
+
+    # 并行计算与通信
+    def copy_to_cpu(x, non_blocking=False):
+        """将GPU上的张量复制到CPU
+        x: 可以是单个张量或张量列表
+        non_blocking: 是否使用非阻塞传输（异步）
+            # 阻塞模式（默认）
+            y.to('cpu') # 必须等待复制完成才能继续执行
+            # 非阻塞模式
+            y.to('cpu', non_blocking=True) # 启动传输后立即返回，允许后续计算继续
+        返回：CPU上的张量或张量列表
+        """
+        # 如果是列表/元组，递归处理每个元素
+        return [y.to('cpu', non_blocking=non_blocking) for y in x]
+
+    # 基准测试1：纯GPU计算
+    with common.Benchmark('在GPU1上运行'):
+        # 在GPU1上执行计算任务（假设run()是某个计算密集型函数）
+        y = run(x_gpu1)
+        # 同步GPU流，确保计算完成（阻塞等待）
+        torch.cuda.synchronize()
+        """
+        这个测试测量：
+        - 纯GPU计算时间
+        - 不涉及数据传输
+        """
+
+    # 基准测试2：纯数据传输
+    with common.Benchmark('复制到CPU'):
+        # 将GPU计算结果复制到CPU（默认阻塞模式）
+        y_cpu = copy_to_cpu(y)
+        # 同步确保传输完成
+        torch.cuda.synchronize()
+        """
+        这个测试测量：
+        - 从GPU到CPU的数据传输时间
+        - 阻塞模式：计算和传输是串行的
+        """
+
+    # 基准测试3：计算与传输重叠
+    with common.Benchmark('在GPU1上运行并复制到CPU'):
+        # 执行GPU计算
+        y = run(x_gpu1)
+        # 使用非阻塞模式将数据复制到CPU
+        y_cpu = copy_to_cpu(y, True)
+        # 同步确保所有操作完成
+        torch.cuda.synchronize()
+        """
+        这个测试测量：
+        - 计算与传输的重叠执行时间
+        - non_blocking=True允许：
+          1. GPU计算继续进行
+          2. 同时将数据从GPU复制到CPU
+        关键点：
+        - 总时间 ≈ max(计算时间, 传输时间)
+        - 而非计算时间+传输时间
+        """
 # learn_automatic_parallelism()
-
-
-
-
 
 
 
