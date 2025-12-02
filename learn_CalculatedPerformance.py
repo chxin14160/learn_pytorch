@@ -156,61 +156,78 @@ def learn_Compilers_and_interpreters():
         print(f"完整路径: {model_path.absolute()}")
     else:
         print("❌ 文件不存在，保存失败！")
-learn_Compilers_and_interpreters()
+# learn_Compilers_and_interpreters()
 
 
+def learn_asynchronous_computing():
+    ''' 异步计算：GPU性能对比测试
+    展示计算的性能差异：PyTorch GPU计算 vs NumPy CPU '''
+    # GPU计算热身
+    # 作用：避免冷启动开销（第一次GPU操作较慢）
+    device = common.try_gpu()  # 自动检测GPU，若无则使用CPU
+    a = torch.randn(size=(1000, 1000), device=device)  # 在GPU上创建随机矩阵
+    b = torch.mm(a, a)  # GPU矩阵乘法（预热，避免首次运行开销）
+
+    # 1、NumPy的CPU计算性能
+    # 预期结果：相对较慢，因为CPU处理大矩阵乘法效率较低
+    with common.Benchmark('numpy (NumPy CPU基准测试)'):
+        for _ in range(10):  # 执行10次
+            a = numpy.random.normal(size=(1000, 1000))  # CPU生成随机矩阵
+            b = numpy.dot(a, a)  # CPU矩阵乘法
+
+    # 2、PyTorch的GPU异步计算性能
+    # 关键点：没有调用torch.cuda.synchronize() → 测量的是排队时间而非实际计算时间
+    with common.Benchmark('torch (PyTorch GPU异步测试)'):
+        for _ in range(10):
+            a = torch.randn(size=(1000, 1000), device=device)
+            b = torch.mm(a, a)
+
+    # 3、GPU同步计算的性能
+    # 关键点：显式同步 → 测量实际计算时间
+    with common.Benchmark('torch (PyTorch GPU同步测试)'):  # 默认描述
+        for _ in range(10):
+            a = torch.randn(size=(1000, 1000), device=device)
+            b = torch.mm(a, a)
+        # 若安装的PyTorch是cpu版本，则没有CUDA支持，无法使用GPU。则下句需注释
+        torch.cuda.synchronize(device)  # 等待所有GPU操作完成
+
+    # 验证GPU计算正确性
+    # 预期输出：tensor([[3., 3.]], device='cuda:0')
+    x = torch.ones((1, 2), device=device)
+    y = torch.ones((1, 2), device=device)
+    z = x * y + 2  # 简单GPU计算
+    print(f"{z}")  # 输出结果，验证GPU工作正常
+# learn_asynchronous_computing()
 
 
+def learn_automatic_parallelism():
+    '''自动并行'''
+    devices = common.try_all_gpus()
+    print(f"检测到的总设备数量：{len(devices)}")
+    def run(x):
+        return [x.mm(x) for _ in range(50)]
 
+    x_gpu1 = torch.rand(size=(4000, 4000), device=devices[0])
+    x_gpu2 = torch.rand(size=(4000, 4000), device=devices[1])
 
-''' GPU性能对比测试
-展示计算的性能差异：PyTorch GPU计算 vs NumPy CPU '''
-# GPU计算热身
-# 作用：避免冷启动开销（第一次GPU操作较慢）
-device = common.try_gpu()  # 自动检测GPU，若无则使用CPU
-a = torch.randn(size=(1000, 1000), device=device)  # 在GPU上创建随机矩阵
-b = torch.mm(a, a)  # GPU矩阵乘法（预热，避免首次运行开销）
+    run(x_gpu1)
+    run(x_gpu2)  # 预热设备
+    torch.cuda.synchronize(devices[0])
+    torch.cuda.synchronize(devices[1])
 
-# 1、NumPy的CPU计算性能
-# 预期结果：相对较慢，因为CPU处理大矩阵乘法效率较低
-with common.Benchmark('numpy (NumPy CPU基准测试)'):
-    for _ in range(10):  # 执行10次
-        a = numpy.random.normal(size=(1000, 1000))  # CPU生成随机矩阵
-        b = numpy.dot(a, a)  # CPU矩阵乘法
+    with common.Benchmark('GPU1 time'):
+        run(x_gpu1) # 在GPU1上执行计算
+        torch.cuda.synchronize(devices[0]) # 等待GPU1完成
 
-# 2、PyTorch的GPU异步计算性能
-# 关键点：没有调用torch.cuda.synchronize() → 测量的是排队时间而非实际计算时间
-with common.Benchmark('torch (PyTorch GPU异步测试)'):
-    for _ in range(10):
-        a = torch.randn(size=(1000, 1000), device=device)
-        b = torch.mm(a, a)
+    with common.Benchmark('GPU2 time'):
+        run(x_gpu2) # 在GPU2上执行计算
+        torch.cuda.synchronize(devices[1]) # 等待GPU2完成
 
-# 3、GPU同步计算的性能
-# 关键点：显式同步 → 测量实际计算时间
-with common.Benchmark('torch (PyTorch GPU同步测试)'):  # 默认描述
-    for _ in range(10):
-        a = torch.randn(size=(1000, 1000), device=device)
-        b = torch.mm(a, a)
-    # 若安装的PyTorch是cpu版本，则没有CUDA支持，无法使用GPU。则下句需注释
-    torch.cuda.synchronize(device)  # 等待所有GPU操作完成
-
-# 验证GPU计算正确性
-# 预期输出：tensor([[3., 3.]], device='cuda:0')
-x = torch.ones((1, 2), device=device)
-y = torch.ones((1, 2), device=device)
-z = x * y + 2  # 简单GPU计算
-print(f"{z}")  # 输出结果，验证GPU工作正常
-
-
-
-
-
-
-
-
-
-
-
+    with common.Benchmark('GPU1 & GPU2'):
+        run(x_gpu1)  # 启动GPU1计算
+        run(x_gpu2)  # 立即启动GPU2计算 ← 关键并行点
+        torch.cuda.synchronize() # 等待所有GPU操作完成
+# learn_automatic_parallelism()
 
 
 
