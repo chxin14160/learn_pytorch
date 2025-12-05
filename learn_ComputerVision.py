@@ -112,7 +112,43 @@ def learn_Multi_GPU_training():
     # 测试集增强：预测过程中不使用随机操作的图像增广，ToTensor将图像转为深度学习框架所要求的格式
     test_augs = torchvision.transforms.Compose([
          torchvision.transforms.ToTensor()]) # 仅转换
+
+
+    # 超参数设置
+    batch_size = 256    # 总batch大小（会被自动分割到多个GPU）
+    # batch_size = 32     # 我GPU只有2GB显存，所以需要将批次大小减小
+    devices = common.try_all_gpus() # 自动检测可用GPU
+    net = common.resnet18(10, 3)    # 10分类，3通道输入（CIFAR-10）
+
+    # Xavier均匀初始化（适合tanh/sigmoid激活函数）
+    def init_weights(m):
+        if type(m) in [nn.Linear, nn.Conv2d]:
+            nn.init.xavier_uniform_(m.weight) # 保持输入输出方差一致
+
+    net.apply(init_weights) # 递归应用初始化函数到所有子模块
+
+    # 数据增强训练封装函数
+    def train_with_data_aug(train_augs, test_augs, net, lr=0.001):
+        """支持数据增强的完整训练流程"""
+        # 数据加载（应用数据增强）
+        # train_iter = common.load_cifar10(True, train_augs, batch_size, learn_pytorch=True)   # 训练集
+        # test_iter = common.load_cifar10(False, test_augs, batch_size, learn_pytorch=True)    # 测试集
+        train_iter = common.load_cifar10(True, train_augs, batch_size)   # 训练集
+        test_iter = common.load_cifar10(False, test_augs, batch_size)    # 测试集
+        # 损失函数和优化器
+        loss = nn.CrossEntropyLoss(reduction="none")        # 不自动求平均
+        trainer = torch.optim.Adam(net.parameters(), lr=lr) # Adam优化器
+        # 启动训练
+        # epoch_train_losses, epoch_train_accs, epoch_test_accs = (
+        #     common.train_ch13(net, train_iter, test_iter, loss, trainer, 10, devices))
+        common.train_ch13(net, train_iter, test_iter, loss, trainer, 10, devices)
+
+    train_with_data_aug(train_augs, test_augs, net)
 # learn_Multi_GPU_training()
+
+
+
+
 
 
 
@@ -242,6 +278,17 @@ def learn_object_detection_and_bounding_boxes():
     fig.axes.add_patch(common.bbox_to_rect(dog_bbox, 'blue'))
     fig.axes.add_patch(common.bbox_to_rect(cat_bbox, 'red'))
 # learn_object_detection_and_bounding_boxes()
+
+
+
+
+if __name__ == '__main__':
+    # Windows多进程必须的保护
+    from multiprocessing import freeze_support
+    freeze_support()  # Windows冻结支持
+
+    # learn_Multi_GPU_training()
+
 
 
 
