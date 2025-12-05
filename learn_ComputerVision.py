@@ -95,7 +95,7 @@ def demonstrate_augmentation_methods():
 
 
 def learn_Multi_GPU_training():
-    '''多GPU训练'''
+    '''图像增广：多GPU训练部分'''
     all_images = torchvision.datasets.CIFAR10(
         train=True,           # 加载训练集（False为测试集）
         root="../data",       # 数据存储目录
