@@ -1,0 +1,8 @@
+torch>=1.10.2
+torchvision>=0.11.3
+numpy>=1.24.0
+matplotlib>=3.7.5
+pandas>=2.3.3
+Pillow>=10.2.0
+sympy==1.13.3
+tensorflow==2.20.0
