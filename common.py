@@ -879,51 +879,6 @@ def resnet18(num_classes, in_channels=1):
         nn.Linear(512, num_classes)))    # 全连接输出层
     return net
 
-
-def resnet18(num_classes, in_channels=1):
-    """稍加修改的ResNet-18模型（适配CIFAR-10等小尺寸图像）
-    修改要点说明：
-        输入适配：针对CIFAR-10的32x32小图像，移除了原版的大卷积核和池化层
-        结构保留：保持ResNet-18的4个阶段和残差连接特性
-        参数优化：使用更小的卷积核避免过早降低空间分辨率
-    """
-    def resnet_block(in_channels, out_channels, num_residuals,
-                     first_block=False):
-        """构建ResNet残差块"""
-        blk = []
-        for i in range(num_residuals):
-            if i == 0 and not first_block:
-                # 非第一个块的首个残差单元：使用1x1卷积进行下采样
-                blk.append(Residual(in_channels, out_channels,
-                                        use_1x1conv=True, strides=2))
-            else:
-                # 普通残差单元：输入输出通道数相同
-                blk.append(Residual(out_channels, out_channels))
-        return nn.Sequential(*blk) # 将多个残差块组合成序列
-
-    # 修改点：使用更小的卷积核、步长和填充，以适配小尺寸图像。并且删除了最大汇聚层
-    net = nn.Sequential(
-        # 第一层：3x3卷积（原版是7x7卷积+池化，这里简化适配小图像）
-        nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),
-        nn.BatchNorm2d(64),  # 批归一化，稳定训练过程
-        nn.ReLU())            # 激活函数，引入非线性
-    # 添加4个残差块（ResNet-18结构：2+2+2+2=8个残差单元）
-    # 阶段1：64通道，不进行下采样（first_block=True）
-    net.add_module("resnet_block1", resnet_block(
-        64, 64, 2, first_block=True))
-    # 阶段2~4：128通道，256通道，512通道，皆进行2倍下采样
-    net.add_module("resnet_block2", resnet_block(64, 128, 2))   # 下采样
-    net.add_module("resnet_block3", resnet_block(128, 256, 2))  # 下采样
-    net.add_module("resnet_block4", resnet_block(256, 512, 2))  # 下采样
-
-    # 分类器部分：全局平均池化 + 全连接层
-    net.add_module("global_avg_pool", nn.AdaptiveAvgPool2d((1,1))) # 自适应池化到1x1
-    net.add_module("fc", nn.Sequential(
-        nn.Flatten(),                    # 展平特征图
-        nn.Linear(512, num_classes)))    # 全连接输出层
-    return net
-
-
 def train_batch_ch13(net, X, y, loss, trainer, devices):
     """用多GPU进行小批量训练（核心训练逻辑）
     net : 神经网络模型
