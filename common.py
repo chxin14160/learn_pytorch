@@ -3,8 +3,11 @@ import numpy as np
 from sympy import false
 # from IPython import display
 from torch.utils.data import DataLoader, TensorDataset
+import os
 import torch
+import torchvision
 from torch import nn
+from torch.nn import functional as F
 from torchvision import datasets, transforms
 from PIL import Image
 
@@ -403,12 +406,13 @@ def get_dataloader_workers():
     return min(4, multiprocessing.cpu_count() // 2)  # 取CPU核心数的一半，最多4个
 
 
-def load_cifar10(is_train, augs, batch_size, data_dir="../data"):
+def load_cifar10(is_train, augs, batch_size, data_dir="../data", learn_pytorch=False):
     """ 加载CIFAR-10数据集（完整版本）
     is_train    : 是否为训练集（True=训练集，False=测试集）
     augs        : 数据增强变换
     batch_size  : 批次大小
     data_dir    : 数据存储目录
+    learn_pytorch : 学习阶段标志（True=学习阶段，False=生产阶段）
     返回: DataLoader: PyTorch数据加载器
     """
     # 创建数据目录（若不存在）
@@ -420,15 +424,41 @@ def load_cifar10(is_train, augs, batch_size, data_dir="../data"):
         train=is_train,
         transform=augs,
         download=True) # 自动下载（若不存在）
+    # dataloader = torch.utils.data.DataLoader(
+    #     dataset,
+    #     batch_size=batch_size,
+    #     shuffle=is_train,   # 训练集打乱，测试集不打乱
+    #     num_workers=get_dataloader_workers(), # 并行加载进程数
+    #     pin_memory=True)    # 使用固定内存(加速GPU传输)
+
+    # 根据学习阶段选择不同的配置
+    if learn_pytorch:
+        # 学习阶段配置：稳定性优先，避免多进程问题
+        dataloader_config = {
+            'num_workers': 0,              # 禁用多进程
+            'pin_memory': False,           # 禁用固定内存
+            'persistent_workers': False    # 禁用持久化worker
+        }
+        stage_info = "学习阶段(稳定性优先)"
+    else:
+        # 生产阶段配置：性能优先
+        dataloader_config = {
+            'num_workers': get_dataloader_workers(),  # 使用多进程
+            'pin_memory': True,            # 启用固定内存加速GPU传输
+            'persistent_workers': True     # 启用持久化worker提高效率
+        }
+        stage_info = "生产阶段(性能优先)"
+    # 创建数据加载器
     dataloader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=is_train,   # 训练集打乱，测试集不打乱
-        num_workers=get_dataloader_workers(), # 并行加载进程数
-        pin_memory=True)    # 使用固定内存(加速GPU传输)
+        **dataloader_config # 解包配置参数
+    )
     print(f"✅ 加载{'训练' if is_train else '测试'}集: "
           f"{len(dataset)}张图像, 批次大小: {batch_size}, "
-          f"Worker数量: {get_dataloader_workers()}")
+          f"Worker数量: {dataloader_config['num_workers']}, "
+          f"阶段: {stage_info}")
     return dataloader
 
 
@@ -742,6 +772,286 @@ def train_ch8(net, train_iter, vocab, lr, num_epochs, device,
     # 使用两个不同的前缀生成文本
     print(predict('time traveller'))
     print(predict('traveller'))
+
+
+class Residual(nn.Module):
+    """残差块实现
+    功能：解决深度网络中的梯度消失问题，通过跳跃连接实现恒等映射
+    原理：输出 = F(x) + x，其中F(x)是残差函数，x是输入恒等映射
+    """
+    def __init__(self, input_channels, num_channels,
+                 use_1x1conv=False, strides=1):
+        '''
+        input_channels  : 输入通道数
+        num_channels    : 输出通道数
+        use_1x1conv : 是否使用1x1卷积调整维度（用于下采样）
+        strides     : 卷积步长（用于空间下采样）
+        '''
+        super().__init__()
+        # 两个输出通道数相同的 3x3卷积 + 批归一化
+        self.conv1 = nn.Conv2d(input_channels, num_channels,
+                               kernel_size=3, padding=1, stride=strides)
+        self.conv2 = nn.Conv2d(num_channels, num_channels,
+                               kernel_size=3, padding=1)
+        # 批量归一化层，用于稳定训练过程
+        self.bn1 = nn.BatchNorm2d(num_channels) # 批归一化，加速训练
+        self.bn2 = nn.BatchNorm2d(num_channels)
+
+        # 可选的1x1卷积：用于调整通道数和空间尺寸（当输入输出维度不匹配时使用）
+        if use_1x1conv:
+            # 用于调整输入x的通道数和尺寸，使其能于y相加(即解决残差连接中的维度匹配问题)
+            self.conv3 = nn.Conv2d(input_channels, num_channels,
+                                   kernel_size=1, stride=strides)
+        else:
+            self.conv3 = None
+
+    ''' 
+    第二个卷积层后没有直接加激活函数的原因：
+    1、是残差连接的需要，保证残差连接 X 和主路径 Y 的相加操作在线性空间中进行。
+    残差块的核心是恒等映射（identity mapping），即允许原始输入X直接传递到输出（Y += X）
+    若在conv2后直接加 eLU，残差X和主路径Y相加时，
+            X是线性值，而Y是非线性值（经过ReLU），可能导致相加后的结果表达能力受限
+    正确做法：先相加（Y+X），再对整体做非线性变换（ReLU），确保残差和主路径的交互更自然
+    2、避免 ReLU 截断梯度，提升训练稳定性。
+    3、遵循ResNet的原始设计，保持梯度流动。
+    最终激活在相加后统一应用，确保非线性能力。
+    这种设计是残差网络能够训练极深模型的关键之一！
+    '''
+    def forward(self, X):
+        """前向传播过程"""
+        # 第一条路径（主路径）残差路径：两个卷积层
+        Y = F.relu(self.bn1(self.conv1(X))) # 卷积1 → 批归一化 → ReLU
+        Y = self.bn2(self.conv2(Y))         # 卷积2 → 批归一化（注意：这里没有ReLU！）
+
+        # 第二条路径（残差连接）恒等路径：直接传递X 或 若需调整维度，使用1x1卷积调整
+        if self.conv3:
+            X = self.conv3(X)   # 调整X的维度
+
+        Y += X  # 残差连接：恒等映射 + 残差函数 即 跳过两个卷积将输入直接加进来（残差相加）
+        return F.relu(Y) # 对相加后的结果应用ReLU（在相加后统一激活）
+
+
+def resnet18(num_classes, in_channels=1):
+    """稍加修改的ResNet-18模型（适配CIFAR-10等小尺寸图像）
+    修改要点说明：
+        输入适配：针对CIFAR-10的32x32小图像，移除了原版的大卷积核和池化层
+        结构保留：保持ResNet-18的4个阶段和残差连接特性
+        参数优化：使用更小的卷积核避免过早降低空间分辨率
+    """
+    def resnet_block(in_channels, out_channels, num_residuals,
+                     first_block=False):
+        """构建ResNet残差块
+        input_channels  ：输入通道数
+        num_channels    ：输出通道数
+        num_residuals   ：当前阶段堆叠的残差块数量
+        first_block     ：是否为网络的第一个残差阶段（避免首层下采样）
+        """
+        blk = []
+        for i in range(num_residuals):
+            if i == 0 and not first_block:
+                # 非第一个块的首个残差单元使用1x1卷积进行下采样：（需调整维度）
+                blk.append(Residual(in_channels, out_channels,
+                                        use_1x1conv=True, strides=2))
+            else:
+                # 普通残差单元：输入输出通道数相同
+                blk.append(Residual(out_channels, out_channels))
+        return nn.Sequential(*blk) # 将多个残差块组合成序列
+
+    # 修改点：使用更小的卷积核、步长和填充，以适配小尺寸图像。并且删除了最大汇聚层
+    net = nn.Sequential(
+        # 第一层：3x3卷积（原版是7x7卷积+池化，这里简化适配小图像）
+        nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),
+        nn.BatchNorm2d(64),  # 批归一化，稳定训练过程
+        nn.ReLU())            # 激活函数，引入非线性
+    # 添加4个残差块（ResNet-18结构：2+2+2+2=8个残差单元）
+    # 阶段1：64通道，不进行下采样（first_block=True）
+    net.add_module("resnet_block1", resnet_block(
+        64, 64, 2, first_block=True))
+    # 阶段2~4：128通道，256通道，512通道，皆进行2倍下采样
+    net.add_module("resnet_block2", resnet_block(64, 128, 2))   # 下采样
+    net.add_module("resnet_block3", resnet_block(128, 256, 2))  # 下采样
+    net.add_module("resnet_block4", resnet_block(256, 512, 2))  # 下采样
+
+    # 分类器部分：全局平均池化 + 全连接层
+    net.add_module("global_avg_pool", nn.AdaptiveAvgPool2d((1,1))) # 自适应池化到1x1
+    net.add_module("fc", nn.Sequential(
+        nn.Flatten(),                    # 展平特征图
+        nn.Linear(512, num_classes)))    # 全连接输出层
+    return net
+
+
+def resnet18(num_classes, in_channels=1):
+    """稍加修改的ResNet-18模型（适配CIFAR-10等小尺寸图像）
+    修改要点说明：
+        输入适配：针对CIFAR-10的32x32小图像，移除了原版的大卷积核和池化层
+        结构保留：保持ResNet-18的4个阶段和残差连接特性
+        参数优化：使用更小的卷积核避免过早降低空间分辨率
+    """
+    def resnet_block(in_channels, out_channels, num_residuals,
+                     first_block=False):
+        """构建ResNet残差块"""
+        blk = []
+        for i in range(num_residuals):
+            if i == 0 and not first_block:
+                # 非第一个块的首个残差单元：使用1x1卷积进行下采样
+                blk.append(Residual(in_channels, out_channels,
+                                        use_1x1conv=True, strides=2))
+            else:
+                # 普通残差单元：输入输出通道数相同
+                blk.append(Residual(out_channels, out_channels))
+        return nn.Sequential(*blk) # 将多个残差块组合成序列
+
+    # 修改点：使用更小的卷积核、步长和填充，以适配小尺寸图像。并且删除了最大汇聚层
+    net = nn.Sequential(
+        # 第一层：3x3卷积（原版是7x7卷积+池化，这里简化适配小图像）
+        nn.Conv2d(in_channels, 64, kernel_size=3, stride=1, padding=1),
+        nn.BatchNorm2d(64),  # 批归一化，稳定训练过程
+        nn.ReLU())            # 激活函数，引入非线性
+    # 添加4个残差块（ResNet-18结构：2+2+2+2=8个残差单元）
+    # 阶段1：64通道，不进行下采样（first_block=True）
+    net.add_module("resnet_block1", resnet_block(
+        64, 64, 2, first_block=True))
+    # 阶段2~4：128通道，256通道，512通道，皆进行2倍下采样
+    net.add_module("resnet_block2", resnet_block(64, 128, 2))   # 下采样
+    net.add_module("resnet_block3", resnet_block(128, 256, 2))  # 下采样
+    net.add_module("resnet_block4", resnet_block(256, 512, 2))  # 下采样
+
+    # 分类器部分：全局平均池化 + 全连接层
+    net.add_module("global_avg_pool", nn.AdaptiveAvgPool2d((1,1))) # 自适应池化到1x1
+    net.add_module("fc", nn.Sequential(
+        nn.Flatten(),                    # 展平特征图
+        nn.Linear(512, num_classes)))    # 全连接输出层
+    return net
+
+
+def train_batch_ch13(net, X, y, loss, trainer, devices):
+    """用多GPU进行小批量训练（核心训练逻辑）
+    net : 神经网络模型
+    X   : 输入数据
+    y   : 真实标签
+    loss: 损失函数
+    trainer: 优化器
+    devices: 可用GPU设备列表
+    """
+    # 数据移动到主GPU（设备0）
+    if isinstance(X, list):
+        # 处理多输入模型（如BERT）
+        # 微调BERT中所需
+        # 处理BERT等多输入模型的多个输入（如input_ids, attention_mask）
+        X = [x.to(devices[0]) for x in X]
+    else:
+        # 常规单输入数据（如图像张量）
+        X = X.to(devices[0])
+    y = y.to(devices[0])  # 标签也移动到主GPU
+
+    # 训练模式设置
+    net.train()  # 启用 随即失活dropout、批量归一化batchnorm的训练行为
+    trainer.zero_grad()  # 清空上一轮的梯度
+
+    # 前向传播（DataParallel自动处理多GPU数据分割）
+    pred = net(X)  # → 在多GPU上并行计算
+
+    # 损失计算（reduction='none'得到每个样本的损失）
+    l = loss(pred, y)  # 形状: (batch_size,)
+
+    # 反向传播（DataParallel自动聚合多GPU梯度）
+    l.sum().backward()  # 损失求和后反向传播
+
+    # 参数更新（使用优化器）
+    trainer.step()  # 根据梯度更新模型参数
+
+    # 返回统计信息
+    train_loss_sum = l.sum()  # 本批次总损失
+    train_acc_sum = accuracy(pred, y)  # 本批次准确率
+    return train_loss_sum, train_acc_sum
+
+
+def train_ch13(net, train_iter, test_iter, loss, trainer, num_epochs,
+               devices=try_all_gpus()):
+    """用多GPU进行模型训练（训练+验证+可视化）
+    net         : 神经网络模型
+    train_iter  : 训练数据迭代器
+    test_iter   : 测试数据迭代器
+    loss        : 损失函数
+    trainer     : 优化器
+    num_epochs  : 训练轮数
+    devices     : 可用GPU设备列表
+    """
+    # 初始化工具
+    timer, num_batches = Timer(), len(train_iter)
+    animator = Animator(xlabel='epoch', xlim=[1, num_epochs], ylim=[0, 1],
+                        legend=['train loss', 'train acc', 'test acc'])
+    # 关键：启用多GPU数据并行
+    # net = nn.DataParallel(net, device_ids=devices).to(devices[0])
+    if len(devices) > 1:
+        net = nn.DataParallel(net, device_ids=devices)
+    net = net.to(devices[0])
+    """
+    DataParallel工作原理：
+    1. 自动将模型复制到所有GPU
+    2. 前向传播时分割batch到各个GPU
+    3. 反向传播时聚合所有GPU的梯度
+    4. 在主GPU上更新参数并同步到其他GPU
+    """
+
+    # 记录每个epoch的数据
+    epoch_train_losses = []
+    epoch_train_accs   = []
+    epoch_test_accs    = []
+
+    for epoch in range(num_epochs):  # 训练循环
+        # 初始化统计器：[损失和, 正确数, 样本数, 总预测数]
+        # 4个维度：储存训练损失，训练准确度，实例数，特点数
+        metric = Accumulator(4)
+        for i, (features, labels) in enumerate(train_iter):  # 批次循环
+            timer.start()
+            # 单批次训练
+            l, acc = train_batch_ch13(
+                net, features, labels, loss, trainer, devices)
+            """ 累积统计信息
+            metric内容：
+            [0] - 损失累加和
+            [1] - 正确预测数累加和  
+            [2] - 样本数累加和（用于计算平均损失）
+            [3] - 总预测数累加和（用于计算准确率）
+            """
+            metric.add(l, acc, labels.shape[0], labels.numel())
+            timer.stop()
+
+            if (i + 1) % (num_batches // 5) == 0 or i == num_batches - 1:
+                current_loss = metric[0] / metric[2]
+                current_acc = metric[1] / metric[3]
+                # print(f'Epoch {epoch+1}, Batch {i+1}: '
+                #       f'loss={current_loss:.4f}, acc={current_acc:.4f}')
+                # 确保数据有效
+                if not np.isnan(current_loss) and not np.isnan(current_acc):
+                    animator.add(epoch + (i + 1) / num_batches,
+                                 (current_loss,  # 平均训练损失
+                                  current_acc,      # 训练准确率
+                                  None))            # 测试准确率（暂空）
+        # 每个epoch结束后在测试集上评估
+        test_acc = evaluate_accuracy_gpu(net, test_iter)
+
+        # 记录epoch数据
+        epoch_train_loss = metric[0] / metric[2]
+        epoch_train_acc  = metric[1] / metric[3]
+
+        epoch_train_losses.append(epoch_train_loss)
+        epoch_train_accs.append(epoch_train_acc)
+        epoch_test_accs.append(test_acc)
+
+        animator.add(epoch + 1, (None, None, test_acc))  # 更新测试准确率
+        print(f'Epoch {epoch + 1} 完成 - '
+              f'训练损失: {epoch_train_loss:.4f}, '
+              f'训练准确率: {epoch_train_acc:.3f}, '
+              f'测试准确率: {test_acc:.3f}, '
+              f'时间: {timer.times[-1]:.2f}s')
+    print(f'训练结束：loss {epoch_train_loss:.3f}, train acc '
+          f'{epoch_train_acc:.3f}, test acc {test_acc:.3f}')
+    print(f'吞吐量：{metric[2] * num_epochs / timer.sum():.1f} examples/sec on '
+          f'{str(devices)}')  # 计算吞吐量
+    # return epoch_train_losses, epoch_train_accs, epoch_test_accs
+
 
 """
 在序列中屏蔽不相关的项（将超出有效长度的位置设置为指定值）
