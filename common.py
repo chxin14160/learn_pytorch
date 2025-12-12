@@ -1369,6 +1369,91 @@ def bbox_to_rect(bbox, color):
         fill=False,                 # 不填充（透明）
         edgecolor=color, linewidth=2) # 边框颜色/宽度
 
+def multibox_prior(data, sizes, ratios):
+    """生成以每个像素为中心具有不同形状的锚框(左上点xy，右下点xy)
+    函数功能：为输入图像的每个像素生成多个不同尺寸和比例的锚框（anchor boxes）
+    这些锚框会被用作后续检测的候选区域
+    Args:
+        data: 输入数据张量，形状为(batch, channels, height, width)
+        sizes: 锚框相对于原始图像的缩放比例列表，例如 [0.5, 0.25, 0.1]
+        ratios: 锚框宽高比列表，例如 [1, 2, 0.5] 表示宽高比为1:1, 2:1, 1:2
+    """
+    in_height, in_width = data.shape[-2:]  # 获取输入图像的高度和宽度
+    device = data.device     # 获取数据所在的设备（CPU/GPU）
+    num_sizes  = len(sizes)  # 不同缩放尺寸的数量
+    num_ratios = len(ratios) # 不同宽高比的数量
+    # 每个像素生成的锚框数量 = (尺寸数量 + 宽高比数量 - 1)
+    boxes_per_pixel = (num_sizes + num_ratios - 1) # -1避免重复计数
+    size_tensor = torch.tensor(sizes, device=device)   # 尺寸转换为张量
+    ratio_tensor = torch.tensor(ratios, device=device) # 比例转换为张量
+
+    # 为了将锚点移动到像素的中心，需要设置偏移量。
+    # 因为一个像素的高为1且宽为1，我们选择偏移我们的中心0.5
+    offset_h, offset_w = 0.5, 0.5 # 偏移量为0.5，让锚框中心位于像素中心
+    # 图像坐标归一化到[0, 1]范围：左上(0, 0)，右下(1, 1)
+    # 每个像素中心: ((row+0.5)/height, (col+0.5)/width)
+    steps_h = 1.0 / in_height # 在y轴上缩放步长，y方向步长 = 1/高度（归一化）
+    steps_w = 1.0 / in_width  # 在x轴上缩放步长，x方向步长 = 1/宽度（归一化）
+
+    # 生成锚框的所有中心点
+    # 生成所有可能的：行中心坐标（y坐标），列中心坐标（x坐标）
+    center_h = (torch.arange(in_height, device=device) + offset_h) * steps_h
+    center_w = (torch.arange(in_width, device=device) + offset_w) * steps_w
+    # 生成网格：所有像素的中心点坐标
+    # shift_y形状: (height, width), 每个位置是该行的y坐标
+    # shift_x形状: (height, width), 每个位置是该列的x坐标
+    shift_y, shift_x = torch.meshgrid(center_h, center_w, indexing='ij')
+    shift_y, shift_x = shift_y.reshape(-1), shift_x.reshape(-1) # 展平为一维张量
+    # 现在shift_y包含所有像素的y坐标，shift_x包含所有像素的x坐标
+
+    ''' 数学原理：
+    假设锚框面积 S = size²（相对于图像面积的比例）
+    宽高比 r = 宽度/高度
+    则：宽度 = √(S × r), 高度 = √(S / r)
+    
+    为什么要乘以in_height/in_width？
+    因为通常假设宽度和高度方向使用相同的归一化尺度
+    对于矩形图像需要进行调整
+    '''
+    # 关键步骤：计算不同尺寸和比例的锚框宽度和高度
+    # 生成“boxes_per_pixel”个高和宽，cat沿现有维度拼接，结果是展开一长条
+    # 之后用于创建锚框的四角坐标(xmin,ymin,xmax,ymax)
+    # (归一化坐标系下的公式)第一部分（固定r₁，变化s）：每个尺寸 × √(第一个比例)
+    # (归一化坐标系下的公式)第二部分（固定s₁，变化r）：第一个尺寸 × √(其他比例)
+    w = torch.cat((size_tensor * torch.sqrt(ratio_tensor[0]),
+                   sizes[0] * torch.sqrt(ratio_tensor[1:])))\
+                   * in_height / in_width  # 处理矩形输入，修正矩形输入的影响
+    h = torch.cat((size_tensor / torch.sqrt(ratio_tensor[0]),
+                   sizes[0] / torch.sqrt(ratio_tensor[1:])))
+    # 构造锚框偏移量：除以2来获得半高和半宽
+    # 创建锚框的四角偏移量：(-w/2, -h/2, w/2, h/2)
+    # stack沿新维度堆叠，结果是4个上下叠起来
+    # .T转置倒过来，变成每行皆是一个像素位置的4个数据
+    # .repeat()将所有锚框重复像素总数次，让每个像素位置都有对应的锚框
+    # 所得形状: (总像素数 × boxes_per_pixel, 4) 每行代表一个锚框的四个角的偏移量
+    anchor_manipulations = torch.stack((-w, -h, w, h)).T.repeat(
+                                        in_height * in_width, 1) / 2
+
+    # 创建中心点网格
+    # 每个中心点都将有“boxes_per_pixel”个锚框，(为每个像素中心点重复boxes_per_pixel次)
+    # 所以生成含所有锚框中心的网格，重复了“boxes_per_pixel”次
+    # stack将锚框4个数据对应的偏移量堆叠起来，变成每行皆是4个数据对应的偏移量
+    # repeat_interleave将偏移量重复[单像素对应的锚框总数]次(交错插入)
+    # 重复元素交错插入后的效果：同一像素位置对应的所有锚框偏移量皆在相邻的一堆中
+    out_grid = torch.stack([shift_x, shift_y, shift_x, shift_y],
+                dim=1).repeat_interleave(boxes_per_pixel, dim=0)
+    # 形状: (总像素数 × boxes_per_pixel, 4)
+    # 每行: [中心x, 中心y, 中心x, 中心y]
+
+    # 锚框坐标 = 中心点坐标 + 偏移量
+    output = out_grid + anchor_manipulations
+    # 形状: (总像素数 × boxes_per_pixel, 4)
+    # 每行: [x_min, y_min, x_max, y_max]（归一化坐标）
+    # 同一像素位置对应的所有锚框信息位于相邻位置
+
+    return output.unsqueeze(0) # 添加批次维度：(1, 总锚框数, 4)
+
+
 
 # 计时器
 class Timer:  # @save
