@@ -1454,6 +1454,39 @@ def multibox_prior(data, sizes, ratios):
     return output.unsqueeze(0) # 添加批次维度：(1, 总锚框数, 4)
 
 
+def show_bboxes(axes, bboxes, labels=None, colors=None):
+    """显示所有边界框(在matplotlib坐标轴上)
+    Args:
+        axes: matplotlib坐标轴对象
+        bboxes: 边界框坐标，形状为(N, 4)或(4,)
+        labels: 边界框标签文本列表
+        colors: 边界框颜色列表
+    """
+    def _make_list(obj, default_values=None):
+        """将输入转换为列表形式，便于统一处理"""
+        if obj is None:
+            obj = default_values # 使用默认值
+        elif not isinstance(obj, (list, tuple)):
+            # 如果输入不是列表或元组，包装成单元素列表
+            obj = [obj]
+        return obj
+
+    # 若标签值为None，则会变成默认值。但因为默认值也没有传，所以最终得到还是None
+    labels = _make_list(labels)
+    colors = _make_list(colors, ['b', 'g', 'r', 'm', 'c']) # 蓝，绿，红，洋红，青
+    for i, bbox in enumerate(bboxes):
+        color = colors[i % len(colors)]
+        rect = bbox_to_rect(bbox.detach().numpy(), color)
+        axes.add_patch(rect) # 向坐标轴添加图形元素
+        if labels and len(labels) > i: # 确保有标签且当前索引在标签列表范围内
+            # 若边框白('w')，则文字黑('k')，保证可见
+            # 否则文字用白色('w')，在彩色背景上更醒目
+            text_color = 'k' if color == 'w' else 'w'
+            axes.text(rect.xy[0], rect.xy[1], labels[i], # 矩形左上角放字
+                      va='center', ha='center', # 垂直和水平居中
+                      fontsize=9, color=text_color, # 字体大小和颜色
+                      bbox=dict(facecolor=color, lw=0)) # facecolor文本框的背景色 同边框色，lw无边框线
+
 
 # 计时器
 class Timer:  # @save
