@@ -26,7 +26,7 @@ img = Image.open('./img/cat1.jpg') # 当前py文件同路径的img文件夹中
 plt.imshow(img)
 # plt.axis('off')  # 隐藏坐标轴
 plt.title('Original Image')
-# plt.show()
+plt.show()
 
 def apply(img, aug, num_rows=2, num_cols=4, scale=1.5,
           title=None, titles=None):
@@ -281,13 +281,36 @@ def learn_object_detection_and_bounding_boxes():
 
 
 
+img = plt.imread('./img/catdog.jpg')
+# plt.figure(figsize=(5, 3)) # 创建新画布
+plt.imshow(img)
+plt.title('catdog')
+# plt.axis('off')  # 可选：隐藏坐标轴
+# plt.show()
+h, w = img.shape[:2]
 
-if __name__ == '__main__':
-    # Windows多进程必须的保护
-    from multiprocessing import freeze_support
-    freeze_support()  # Windows冻结支持
+print(f"原图尺寸： 高{h}, 宽{w}")
+# 生成 [0,1) 均匀分布的随机数，创建随机图像张量作为输入(batch_size, channels, height, width)
+X = torch.rand(size=(1, 3, h, w)) # 批次大小为1，RGB3通道
+Y = common.multibox_prior(X, sizes=[0.75, 0.5, 0.25], ratios=[1, 2, 0.5])
+print(f"生成的锚框变量形状：{Y.shape}")
 
-    # learn_Multi_GPU_training()
+# 5 = boxes_per_pixel = len(sizes) + len(ratios) - 1 = 3+3-1
+boxes = Y.reshape(h, w, 5, 4) # 将形状改为(图像高度, 图像宽度, 以同一像素为中心的锚框的数量, 4)
+print(f"以（250,250）为中心的第一个锚框：{boxes[250, 250, 0, :]}")
+
+plt.figure(figsize=(5, 3)) # 创建新画布
+bbox_scale = torch.tensor((w, h, w, h)) # 准备坐标缩放，以便将归一化坐标转换为像素坐标
+fig = plt.imshow(img)
+# boxes[250, 250, :, :] 是一个二维张量torch.Size([5, 4])
+common.show_bboxes(fig.axes,  # 图像所在的坐标轴对象
+                   boxes[250, 250, :, :] * bbox_scale, # 提取像素位置(250,250)处的所有5个锚框后坐标转换，归一化→像素坐标
+            ['s=0.75, r=1', 's=0.5, r=1', 's=0.25, r=1', 's=0.75, r=2',
+             's=0.75, r=0.5'])
+
+
+
+
 
 
 
