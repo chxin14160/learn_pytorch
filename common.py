@@ -1487,6 +1487,47 @@ def show_bboxes(axes, bboxes, labels=None, colors=None):
                       fontsize=9, color=text_color, # 字体大小和颜色
                       bbox=dict(facecolor=color, lw=0)) # facecolor文本框的背景色 同边框色，lw无边框线
 
+def box_iou(boxes1, boxes2):
+    """计算两个锚框或边界框列表中成对的交并比"""
+    # 计算单个边界框的面积（xdis*ydis）的匿名函数（lambda 函数）
+    box_area = lambda boxes: ((boxes[:, 2] - boxes[:, 0]) *
+                              (boxes[:, 3] - boxes[:, 1]))
+    # boxes1,boxes2,areas1,areas2的形状:
+    # boxes1：(boxes1的数量,4),
+    # boxes2：(boxes2的数量,4),
+    # areas1：(boxes1的数量,),
+    # areas2：(boxes2的数量,)
+    areas1 = box_area(boxes1) # boxes1中所有框的面积，形状(N,)
+    areas2 = box_area(boxes2) # boxes2中所有框的面积，形状(M,)
+
+    # inter_upperlefts,inter_lowerrights,inters的形状:
+    # (boxes1的数量,boxes2的数量,2)
+    # 交集：左上取两个框左上角坐标的最大值，右下取两个框右下角坐标的最小值
+    # 计算交集区域的左上角坐标
+    # boxes1[:, None, :2]插入新维度，形状(N,1,2)
+    # boxes2[:, :2]取前两列，形状(M,2)
+    # torch.max()：广播机制使 (N,1,2)和 (M,2)变成 (N,M,2)。广播后得到(N,M,2)
+    # 数学意义：交集左上角 = (max(x1_min, x2_min), max(y1_min, y2_min))
+    inter_upperlefts = torch.max(boxes1[:, None, :2], boxes2[:, :2])
+    # 计算交集区域的右下角坐标
+    # boxes1[:, None, 2:] 形状(N,1,2)，boxes2[:, 2:] 形状(M,2)，广播后得到(N,M,2)
+    inter_lowerrights = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])
+    # 用右下角 - 左上角得到交集的宽高，再clamp保证非负
+    inters = (inter_lowerrights - inter_upperlefts).clamp(min=0)
+
+    # inter_areas和union_areas的形状:(boxes1的数量,boxes2的数量)
+    # 计算交集面积：宽 * 高，形状(N,M)
+    inter_areas = inters[:, :, 0] * inters[:, :, 1]
+    # 计算并集面积：areas1 + areas2 - inter_areas，利用容斥原理，形状(N,M)
+    # 容斥原理：|A ∪ B| = |A| + |B| - |A ∩ B|
+    # areas1[:, None]：形状从 (N,)→ (N, 1)，便于广播
+    # 广播后与 areas2相加得到 (N, M)的矩阵
+    union_areas = areas1[:, None] + areas2 - inter_areas
+
+    # 交并比 = 交集面积 / 并集面积，返回形状(N,M)的张量
+    return inter_areas / union_areas
+
+
 
 # 计时器
 class Timer:  # @save
