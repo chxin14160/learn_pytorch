@@ -1528,6 +1528,65 @@ def box_iou(boxes1, boxes2):
     return inter_areas / union_areas
 
 
+def assign_anchor_to_bbox(ground_truth, anchors, device, iou_threshold=0.5):
+    """将最接近的真实边界框分配给锚框
+    Args:
+        ground_truth：真实边界框，形状 (M, 4)
+        anchors：锚框，形状 (N, 4)
+        device：设备（CPU/GPU）
+        iou_threshold：IoU阈值，默认0.5
+    输出：
+        anchors_bbox_map，形状 (N,)，每个锚框分配的真实框索引（-1表示未分配）
+    注：
+        可能返回未填满的锚框映射表。
+        在标准的目标检测实现中，未分配的锚框通常被视为负样本（背景），这也是初始化为-1的初衷
+    文字说明中：先贪婪匹配 → 后阈值匹配
+    而该代码中：先阈值匹配 → 后贪婪匹配   ∴ 代码顺序可能导致某些真实框无法被覆盖
+    """
+    # 锚框数量，真实边界框数量
+    num_anchors, num_gt_boxes = anchors.shape[0], ground_truth.shape[0]
+    # 位于第i行和第j列的元素x_ij是锚框i和真实边界框j的IoU
+    jaccard = box_iou(anchors, ground_truth) # 每个锚框与真实边界框的交并比iou
+    # 初始化锚框映射表：每行元素皆为当前锚框所对应的 真实边界框
+    # 创建形状 (N,)的张量，初始值全为-1，-1表示该锚框尚未分配真实框
+    # dtype=torch.long：64位整数类型，用于存储索引
+    anchors_bbox_map = torch.full((num_anchors,), -1, dtype=torch.long,
+                                  device=device)
+
+    # 第一阶段：阈值匹配（一对多分配）。对应算法：第二阶段（阈值匹配）
+    # 根据阈值，决定是否分配真实边界框
+    ''' 获取每个锚框对应的最大iou，及其对应下标位置
+    沿着列方向求max，即 对每行求得一个最大值
+    返回每个锚框的最大IoU值 & 每个锚框对应的最佳真实框索引
+    对于每个锚框 i：
+    max_ious[i] = max(jaccard[i, 0], jaccard[i, 1], ..., jaccard[i, M-1])
+    indices[i] = argmax(jaccard[i, :])  # 最大IoU对应的真实框索引
+    '''
+    max_ious, indices = torch.max(jaccard, dim=1) # 每个锚框的最大IoU值 & 对应的最佳真实框索引
+    # 筛选满足阈值的锚框，满足条件则true
+    # torch.nonzero()返回所有True值的索引，然后展平为一维张量
+    anc_i = torch.nonzero(max_ious >= iou_threshold).reshape(-1) # 满足阈值的锚框下标
+    box_j = indices[max_ious >= iou_threshold] # 满足阈值的锚框下标 所对应的真实框索引
+    anchors_bbox_map[anc_i] = box_j # 将能填的锚框位置 对应填上真实框索引
+
+    # 初始化丢弃标记
+    # col_discard：用于丢弃列的标记（-1）
+    # row_discard：用于丢弃行的标记（-1）
+    col_discard = torch.full((num_gt_boxes,), -1)  # 列数 = 真实框数量
+    row_discard = torch.full((num_anchors,), -1)   # 行数 = 锚框数量
+    # 第二阶段：贪婪最大匹配（一对一分配）
+    for _ in range(num_gt_boxes):
+        max_idx = torch.argmax(jaccard) # 找到矩阵中最大值的扁平索引
+        box_idx = (max_idx % num_gt_boxes).long() # 列索引（真实框索引）
+        anc_idx = (max_idx / num_gt_boxes).long() # 行索引（锚框索引）（这里可能需换为整除//）
+        # 分配和更新
+        anchors_bbox_map[anc_idx] = box_idx # 分配真实框
+        # 设为-1确保被丢弃位置不会被再次选中
+        jaccard[:, box_idx] = col_discard   # 丢弃该列（设为-1）
+        jaccard[anc_idx, :] = row_discard   # 丢弃该行（设为-1）
+    return anchors_bbox_map
+
+
 
 # 计时器
 class Timer:  # @save
