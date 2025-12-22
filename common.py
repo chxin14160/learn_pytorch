@@ -1530,7 +1530,7 @@ def box_iou(boxes1, boxes2):
 
 def assign_anchor_to_bbox(ground_truth, anchors, device, iou_threshold=0.5):
     """将最接近的真实边界框分配给锚框
-    Args:
+    输入:
         ground_truth：真实边界框，形状 (M, 4)
         anchors：锚框，形状 (N, 4)
         device：设备（CPU/GPU）
@@ -1585,6 +1585,42 @@ def assign_anchor_to_bbox(ground_truth, anchors, device, iou_threshold=0.5):
         jaccard[:, box_idx] = col_discard   # 丢弃该列（设为-1）
         jaccard[anc_idx, :] = row_discard   # 丢弃该行（设为-1）
     return anchors_bbox_map
+
+
+def offset_boxes(anchors, assigned_bb, eps=1e-6):
+    """ 对锚框偏移量的转换
+    anchors：锚框，形状 (N, 4)，格式 [x_min, y_min, x_max, y_max]
+    assigned_bb：分配给锚框的真实边界框，形状 (N, 4)，格式相同
+    eps：数值稳定性常数，防止除零和log(0)
+    输出：offset，形状 (N, 4)，每个锚框的偏移量 [Δx, Δy, Δw, Δh]
+    """
+    # 将角点坐标转换为中心坐标格式：
+    # [x_min, y_min, x_max, y_max]→[center_x, center_y, width, height]
+    c_anc = box_corner_to_center(anchors) # 锚框转中心表示法
+    c_assigned_bb = box_corner_to_center(assigned_bb) # 真实框转中心表示法
+
+    # 真实框与锚框中心坐标xy的差值(形状未n*2) 相对于 锚框的宽度或高度的 比例
+    # 10为缩放因子，对应σ_x=σ_y=0.1，但这里用乘法而非除法（将偏移量放大，使得数值范围更适合模型学习）
+    # 数学关系：10×(差值/宽度) ≈ (差值/宽度)/0.1
+    offset_xy = 10 * (c_assigned_bb[:, :2] - c_anc[:, :2]) / c_anc[:, 2:]
+
+    # 真实框与锚框的尺寸比值(真实框宽高相对于锚框宽高的比例)，+eps极小值防止除零
+    # log对数变换：
+    # ① 压缩动态范围：物体尺寸可能相差几个数量级，log变换让大范围数值变小
+    # ② 对称化处理：log(a/b) = -log(b/a)，即对数的倒数性质，正负偏移对称
+    # 5为缩放因子，对应σ_w=σ_h=0.2（平衡宽高偏移量在总损失中的权重）
+    # 数学关系：5 × log(比例) ≈ log(比例) / 0.2
+    '''数值稳定：将大范围的尺寸比例压缩到有界的数值区间
+    # 如果没有对数变换，直接计算比例
+    scale_factor = width_gt / width_anc   # 可能从0.01到100，动态范围太大
+    # 使用对数变换后
+    log_scale = log(width_gt / width_anc) # 范围约[-4.6, +4.6]，更可控
+    '''
+    offset_wh = 5 * torch.log(eps + c_assigned_bb[:, 2:] / c_anc[:, 2:])
+    # 将中心偏移量和宽高偏移量拼接成最终的偏移量向量
+    # offset_xy形状 (N, 2)，offset_wh形状 (N, 2)
+    offset = torch.cat([offset_xy, offset_wh], axis=1)
+    return offset # offset：形状 (N, 4)，格式 [Δx, Δy, Δw, Δh]
 
 
 
