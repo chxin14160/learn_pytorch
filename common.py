@@ -1588,7 +1588,7 @@ def assign_anchor_to_bbox(ground_truth, anchors, device, iou_threshold=0.5):
 
 
 def offset_boxes(anchors, assigned_bb, eps=1e-6):
-    """ 对锚框偏移量的转换
+    """ 获取锚框偏移量：对锚框偏移量的转换
     anchors：锚框，形状 (N, 4)，格式 [x_min, y_min, x_max, y_max]
     assigned_bb：分配给锚框的真实边界框，形状 (N, 4)，格式相同
     eps：数值稳定性常数，防止除零和log(0)
@@ -1621,6 +1621,84 @@ def offset_boxes(anchors, assigned_bb, eps=1e-6):
     # offset_xy形状 (N, 2)，offset_wh形状 (N, 2)
     offset = torch.cat([offset_xy, offset_wh], axis=1)
     return offset # offset：形状 (N, 4)，格式 [Δx, Δy, Δw, Δh]
+
+
+def multibox_target(anchors, labels):
+    """为锚框生成训练标签：使用真实边界框标记锚框
+    anchors：锚框坐标，[x_min, y_min, x_max, y_max]，形状(1, N, 4)或 (N, 4)
+    labels ：真实标注，[class_id, x_min, y_min, x_max, y_max]，形状(batch_size, M, 5)
+    主要功能：为一批图像中的每个锚框生成：(bbox_offset, bbox_mask, class_labels)
+        边界框偏移量：锚框需要调整多少才能匹配真实框(batch_size, 4*N)
+        掩码       ：标识哪些锚框需要计算回归损失	(batch_size, 4*N)（1=需要回归，0=忽略）
+        类别标签    ：锚框内物体的类别（0表示背景）(batch_size, N)
+    """
+    # 获取批次大小（图像数量），锚框去除批次维度，从 (1, N, 4)变为 (N, 4)
+    batch_size, anchors = labels.shape[0], anchors.squeeze(0)
+    batch_offset, batch_mask, batch_class_labels = [], [], [] # 初始化三个列表存储每批的结果
+    device, num_anchors = anchors.device, anchors.shape[0] #设备，锚框的总数量 N
+
+    for i in range(batch_size): # 处理每张图像
+        label = labels[i, :, :] # 获取第i张图像的标注
+
+        # label[:, 1:]去掉类别ID，只保留边界框坐标 [x_min, y_min, x_max, y_max]
+        # anchors_bbox_map形状 (N,)，每个元素是锚框分配的真实框索引（-1表示未分配）
+        anchors_bbox_map = assign_anchor_to_bbox(
+            label[:, 1:], anchors, device) # 获取锚框映射表
+
+        # anchors_bbox_map >= 0 筛选成功被分配了真实框 的锚框
+        # .float().unsqueeze(-1) 转浮点数并增加维度，形状 (N, 1) -> [[1.0], [0.0], [1.0], ...]
+        # .repeat(1,4) 沿第0维重复1次，沿第1维重复4次
+        #       复制到4个坐标维度，表示该锚框对应的4个数据都需要回归，需要计算损失
+        #       例如: [[1.0,1.0,1.0,1.0], [0.0,0.0,0.0,0.0], [1.0,1.0,1.0,1.0], ...]
+        # 作用：标识哪些锚框需要计算边界框回归损失（只有被分配的锚框才需要）
+        bbox_mask = ((anchors_bbox_map >= 0).float().unsqueeze(-1)).repeat(
+            1, 4) # 创建边界框掩码
+
+        # 将类标签和分配的边界框坐标初始化为零
+        # class_labels：锚框的类别标签，初始全0（0表示背景类）
+        # assigned_bb ：存储分配给每个锚框的真实边界框坐标
+        class_labels = torch.zeros(num_anchors, dtype=torch.long,
+                                   device=device)
+        assigned_bb = torch.zeros((num_anchors, 4), dtype=torch.float32,
+                                  device=device)
+
+        # 使用真实边界框来标记锚框的类别：未被成功分配真实框 的锚框，标记其为背景（值为零）
+        # 1、找到被分配的锚框
+        # 成功被分配真实框 的锚框 的索引，形状(K, 1)，K为被分配的锚框数量
+        # 如 [[0], [2], [5]] 表示第0、2、5号锚框被分配了真实框
+        indices_true = torch.nonzero(anchors_bbox_map >= 0) # 成功分配真实框 的锚框 的索引
+        # 2、获取对应的真实框索引
+        # 例如: anchors_bbox_map = [2, -1, 0, -1, -1, 1]
+        #       indices_true = [[0], [2], [5]]
+        #       bb_idx = [2, 0, 1]  # 对应真实框的索引
+        bb_idx = anchors_bbox_map[indices_true] # 锚框所分配到的真实框 的索引
+        # 3、设置类别标签：成功分配到真实框的锚框，对应贴上真实框的标签
+        # label[bb_idx, 0]：获取真实框的类别ID
+        # +1：类别ID+1，因为0被保留给背景类
+        # 例如：真实类别[0, 1, 2] → 锚框标签[1, 2, 3]
+        class_labels[indices_true] = label[bb_idx, 0].long() + 1
+        # 4、设置边界框坐标：成功分配到真实框的锚框，对应设置真实框的标签的坐标信息
+        # 获取真实框的坐标部分 [x_min, y_min, x_max, y_max]
+        assigned_bb[indices_true] = label[bb_idx, 1:]
+
+        # 偏移量转换：获取锚框相对于 对应真实框的偏移值，再利用掩码只保留非背景类(成功被分配真实框)的锚框 的偏移量
+        # offset_boxes(anchors, assigned_bb)：计算所有锚框到其分配的真实框的偏移量
+        # * bbox_mask：掩码操作，只保留被分配锚框的偏移量，未分配的设为0
+        '''
+        final_offset = computed_offset     # 对于被分配的锚框 (bbox_mask = 1)
+        final_offset = computed_offset * 0 # 对于未分配的锚框 (bbox_mask = 0)  
+        '''
+        offset = offset_boxes(anchors, assigned_bb) * bbox_mask
+
+        # 收集批次结果  .reshape(-1)展平为一维向量
+        batch_offset.append(offset.reshape(-1))  # 形状 (4*N,)，.reshape(-1)从(N, 4)→(4*N,)
+        batch_mask.append(bbox_mask.reshape(-1)) # 形状 (4*N,)，.reshape(-1)从(N, 4)→(4*N,)
+        batch_class_labels.append(class_labels)  # 形状 (N,)
+    # 堆叠批次数据
+    bbox_offset = torch.stack(batch_offset)  # 形状 (batch_size, 4*N)
+    bbox_mask = torch.stack(batch_mask)  # 形状 (batch_size, 4*N)
+    class_labels = torch.stack(batch_class_labels)  # 形状 (batch_size, N)
+    return (bbox_offset, bbox_mask, class_labels)
 
 
 
