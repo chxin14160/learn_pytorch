@@ -1643,7 +1643,7 @@ def multibox_target(anchors, labels):
         # label[:, 1:]去掉类别ID，只保留边界框坐标 [x_min, y_min, x_max, y_max]
         # anchors_bbox_map形状 (N,)，每个元素是锚框分配的真实框索引（-1表示未分配）
         anchors_bbox_map = assign_anchor_to_bbox(
-            label[:, 1:], anchors, device) # 获取锚框映射表
+            label[:, 1:], anchors, device) # 获取锚框映射表，左列锚框，上行真实框
 
         # anchors_bbox_map >= 0 筛选成功被分配了真实框 的锚框
         # .float().unsqueeze(-1) 转浮点数并增加维度，形状 (N, 1) -> [[1.0], [0.0], [1.0], ...]
