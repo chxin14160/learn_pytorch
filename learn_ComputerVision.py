@@ -325,12 +325,37 @@ common.show_bboxes(fig.axes, anchors * bbox_scale, ['0', '1', '2', '3', '4'])
 # 根据狗和猫的真实边界框，标注锚框的分类和偏移量。（传入前先添加批次维度）
 labels = common.multibox_target(anchors.unsqueeze(dim=0),
                                 ground_truth.unsqueeze(dim=0))
-# labels = common.multibox_target(anchors,
-#                                 ground_truth)
-
 print(f"分类标签 (cls_labels)：\n{labels[2]}")
 print(f"掩码矩阵（mask）：\n{labels[1]}")
 print(f"边界框偏移量 (bbox_offset)：\n{labels[0]}")
+
+
+anchors = torch.tensor([[0.1, 0.08, 0.52, 0.92], [0.08, 0.2, 0.56, 0.95],
+                      [0.15, 0.3, 0.62, 0.91], [0.55, 0.2, 0.9, 0.88]])
+offset_preds = torch.tensor([0] * anchors.numel())
+cls_probs = torch.tensor([[0] * 4,  # 背景的预测概率
+                      [0.9, 0.8, 0.7, 0.1],  # 狗的预测概率
+                      [0.1, 0.2, 0.3, 0.9]])  # 猫的预测概率
+
+plt.figure(figsize=(5, 3)) # 创建新画布
+fig = plt.imshow(img)
+common.show_bboxes(fig.axes, anchors * bbox_scale,
+            ['dog=0.9', 'dog=0.8', 'dog=0.7', 'cat=0.9'])
+
+output = common.multibox_detection(cls_probs.unsqueeze(dim=0),
+                            offset_preds.unsqueeze(dim=0),
+                            anchors.unsqueeze(dim=0),
+                            nms_threshold=0.5)
+print("f{output}")
+
+plt.figure(figsize=(5, 3)) # 创建新画布
+fig = plt.imshow(img)
+for i in output[0].detach().numpy():
+    if i[0] == -1:
+        continue
+    label = ('dog=', 'cat=')[int(i[0])] + str(i[1])
+    common.show_bboxes(fig.axes, [torch.tensor(i[2:]) * bbox_scale], label)
+
 
 
 
