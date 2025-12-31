@@ -1709,60 +1709,147 @@ def multibox_target(anchors, labels):
 
 
 def offset_inverse(anchors, offset_preds):
-    """根据带有预测偏移量的锚框来预测边界框"""
-    anc = d2l.box_corner_to_center(anchors)
+    """根据带有预测偏移量的锚框来预测边界框
+    功能: 根据锚框和预测的偏移量，反向计算出预测的边界框坐标
+    anchors     : Tensor, 形状 (N, 4), 锚框坐标 [x_min, y_min, x_max, y_max]
+    offset_preds: Tensor, 形状 (N, 4), 模型预测的偏移量 [Δx, Δy, Δw, Δh]
+    返回: Tensor, 形状 (N, 4), 预测的边界框坐标 [x_min, y_min, x_max, y_max]
+    数学原理：
+    编码时：offset = [(cx_gt-cx_anc)/w_anc,
+                    (cy_gt-cy_anc)/h_anc,
+                    log(w_gt/w_anc),
+                    log(h_gt/h_anc)]
+    解码时：
+        cx_pred = cx_anc + offset_x * w_anc / 10
+        w_pred  = w_anc * exp(offset_w / 5)
+    """
+    # 将锚框从角点坐标转换为中心坐标格式
+    # anchors: [x_min, y_min, x_max, y_max] -> [center_x, center_y, width, height]
+    anc = box_corner_to_center(anchors)
+
+    # 计算预测边界框的中心坐标
+    # offset_preds[:, :2]: 预测的Δx, Δy (经过编码的)
+    # anc[:, 2:]: 锚框的宽度和高度
+    # 解码公式: pred_center = anchor_center + (Δx * anchor_wh / 10)
     pred_bbox_xy = (offset_preds[:, :2] * anc[:, 2:] / 10) + anc[:, :2]
+
+    # 计算预测边界框的宽度和高度
+    # offset_preds[:, 2:]: 预测的Δw, Δh (经过编码的)
+    # 解码公式: pred_wh = exp(Δw / 5) * anchor_wh
     pred_bbox_wh = torch.exp(offset_preds[:, 2:] / 5) * anc[:, 2:]
+
+    # 将中心坐标和宽高拼接成完整的中心坐标格式
     pred_bbox = torch.cat((pred_bbox_xy, pred_bbox_wh), axis=1)
-    predicted_bbox = d2l.box_center_to_corner(pred_bbox)
+
+    # 将中心坐标格式转换回角点坐标格式
+    predicted_bbox = box_center_to_corner(pred_bbox)
     return predicted_bbox
 
 
 def nms(boxes, scores, iou_threshold):
-    """对预测边界框的置信度进行排序"""
+    """对预测边界框的置信度进行排序
+    功能: 非极大值抑制，去除冗余的检测框
+    boxes: Tensor, 形状 (N, 4), 边界框坐标 [x_min, y_min, x_max, y_max]
+    scores: Tensor, 形状 (N,), 每个边界框的置信度分数
+    iou_threshold: float, IoU阈值，高于此阈值的重叠框会被抑制
+    返回: Tensor, 形状 (M,), 保留的边界框索引 (M ≤ N)
+    算法流程：
+        1按置信度排序所有检测框
+        2选择最高置信度的框加入结果集
+        3计算该框与剩余所有框的IoU，删除IoU过高的框
+        4重复步骤2-3直到没有剩余框
+    """
+    # 按置信度从高到低排序，返回索引
+    # B: 排序后的索引序列，B[0]是最高分的框的索引
     B = torch.argsort(scores, dim=-1, descending=True)
     keep = []  # 保留预测边界框的指标
-    while B.numel() > 0:
-        i = B[0]
+    while B.numel() > 0: # 循环直到所有框都被处理
+        i = B[0] # 选择当前最高置信度的框
         keep.append(i)
-        if B.numel() == 1: break
-        iou = box_iou(boxes[i, :].reshape(-1, 4),
-                      boxes[B[1:], :].reshape(-1, 4)).reshape(-1)
+        if B.numel() == 1: break # 如果只剩一个框，直接结束
+
+        # 计算当前最高分框与剩余所有框的IoU
+        # boxes[i, :] 是当前选择的框
+        # boxes[B[1:], :] 是剩余的所有框
+        iou = box_iou(boxes[i, :].reshape(-1, 4), # 形状 (1, 4)
+                      boxes[B[1:], :].reshape(-1, 4)) # 形状 (M, 4)
+        iou = iou.reshape(-1)  # 形状 (M,)
+
+        # 找到IoU小于等于阈值的框的索引（保留的框）
+        # 注意：inds对应的是B[1:]的索引，需要+1来得到在B中的正确位置
         inds = torch.nonzero(iou <= iou_threshold).reshape(-1)
+
+        # 更新B：保留符合条件的框，去掉当前选择的框(B[0])
+        # inds + 1 是因为要跳过B[0]（当前选择的框）
         B = B[inds + 1]
+
+    # 返回保留的框的索引
     return torch.tensor(keep, device=boxes.device)
 
 
 def multibox_detection(cls_probs, offset_preds, anchors, nms_threshold=0.5,
                        pos_threshold=0.009999999):
-    """使用非极大值抑制来预测边界框"""
+    """使用非极大值抑制来预测边界框
+    功能: 综合处理分类概率、偏移量预测和NMS，生成最终检测结果
+    cls_probs   : Tensor, 形状 (batch_size, num_classes+1, num_anchors), 类别概率，第0维是背景类
+    offset_preds: Tensor, 形状 (batch_size, 4*num_anchors), 预测的边界框偏移量
+    anchors     : Tensor, 形状 (1, num_anchors, 4) 或 (num_anchors, 4), 锚框坐标
+    nms_threshold: float, NMS的IoU阈值，默认0.5
+    pos_threshold: float, 置信度阈值，低于此阈值的预测视为背景
+    返回: Tensor, 形状 (batch_size, num_anchors, 6),
+          每个检测框 [class_id, confidence, x_min, y_min, x_max, y_max]
+    """
     device, batch_size = cls_probs.device, cls_probs.shape[0]
+    # 去除批次维度：从 (1, N, 4) -> (N, 4)
     anchors = anchors.squeeze(0)
     num_classes, num_anchors = cls_probs.shape[1], cls_probs.shape[2]
-    out = []
-    for i in range(batch_size):
+    out = [] # 存储每张图像的检测结果
+    for i in range(batch_size): # 处理批次中的每张图像
+        # 获取当前图像的类别概率和偏移量预测
+        # cls_prob: 形状 (num_classes+1, num_anchors)
+        # offset_pred: 形状 (4*num_anchors,) -> 重塑为 (num_anchors, 4)
         cls_prob, offset_pred = cls_probs[i], offset_preds[i].reshape(-1, 4)
-        conf, class_id = torch.max(cls_prob[1:], 0)
-        predicted_bb = offset_inverse(anchors, offset_pred)
-        keep = nms(predicted_bb, conf, nms_threshold)
 
+        # 获取每个锚框的最高类别概率（排除背景类）
+        # cls_prob[1:]: 去掉背景类，形状 (num_classes, num_anchors)
+        # torch.max(..., 0): 沿类别维度取最大值，得到每个锚框的最高概率和类别ID
+        conf, class_id = torch.max(cls_prob[1:], 0) # conf和class_id形状都是 (num_anchors,)
+
+        # 根据锚框和偏移量预测边界框坐标
+        predicted_bb = offset_inverse(anchors, offset_pred)
+        keep = nms(predicted_bb, conf, nms_threshold) # 应用NMS，得到保留的框的索引
+
+        # === 复杂逻辑：处理背景和排序 ===
         # 找到所有的non_keep索引，并将类设置为背景
         all_idx = torch.arange(num_anchors, dtype=torch.long, device=device)
+        # 将keep和所有索引拼接，统计每个索引出现的次数
         combined = torch.cat((keep, all_idx))
         uniques, counts = combined.unique(return_counts=True)
+        # counts == 1 表示该索引只在all_idx中出现，不在keep中 -> non_keep
         non_keep = uniques[counts == 1]
+        # 将keep和non_keep拼接，保持原始顺序（先keep后non_keep）
         all_id_sorted = torch.cat((keep, non_keep))
+
+        # 将non_keep对应的类别设为-1（背景）
         class_id[non_keep] = -1
+        # 按all_id_sorted的顺序重新排列class_id和预测框
         class_id = class_id[all_id_sorted]
         conf, predicted_bb = conf[all_id_sorted], predicted_bb[all_id_sorted]
+
+        # 置信度阈值处理
         # pos_threshold是一个用于非背景预测的阈值
         below_min_idx = (conf < pos_threshold)
+        # 低于阈值的预测也设为背景
         class_id[below_min_idx] = -1
+        # 对于背景类，反转置信度（1-conf）以便可视化
         conf[below_min_idx] = 1 - conf[below_min_idx]
-        pred_info = torch.cat((class_id.unsqueeze(1),
-                               conf.unsqueeze(1),
-                               predicted_bb), dim=1)
+
+        # 拼接最终结果：类别ID、置信度、边界框坐标
+        pred_info = torch.cat((class_id.unsqueeze(1),     # 形状 (num_anchors, 1)
+                               conf.unsqueeze(1),         # 形状 (num_anchors, 1)
+                               predicted_bb), dim=1)      # 形状 (num_anchors, 4)
         out.append(pred_info)
+    # 堆叠所有图像的结果，形状 (batch_size, num_anchors, 6)
     return torch.stack(out)
 
 

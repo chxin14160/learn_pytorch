@@ -330,9 +330,17 @@ print(f"掩码矩阵（mask）：\n{labels[1]}")
 print(f"边界框偏移量 (bbox_offset)：\n{labels[0]}")
 
 
+# 4个锚框，每个锚框4个坐标值
 anchors = torch.tensor([[0.1, 0.08, 0.52, 0.92], [0.08, 0.2, 0.56, 0.95],
                       [0.15, 0.3, 0.62, 0.91], [0.55, 0.2, 0.9, 0.88]])
-offset_preds = torch.tensor([0] * anchors.numel())
+
+# 偏移量预测：全0表示没有偏移（预测框=锚框）
+offset_preds = torch.tensor([0] * anchors.numel())  # 形状 (16,) = 4 * 4
+
+# 类别概率：3个类别（背景+狗+猫），4个锚框
+# 第0行：背景类的概率 [0, 0, 0, 0]
+# 第1行：狗类的概率 [0.9, 0.8, 0.7, 0.1]
+# 第2行：猫类的概率 [0.1, 0.2, 0.3, 0.9]
 cls_probs = torch.tensor([[0] * 4,  # 背景的预测概率
                       [0.9, 0.8, 0.7, 0.1],  # 狗的预测概率
                       [0.1, 0.2, 0.3, 0.9]])  # 猫的预测概率
@@ -342,18 +350,26 @@ fig = plt.imshow(img)
 common.show_bboxes(fig.axes, anchors * bbox_scale,
             ['dog=0.9', 'dog=0.8', 'dog=0.7', 'cat=0.9'])
 
+# 模型推理
+# 添加批次维度并调用检测函数
+# cls_probs.unsqueeze(0): (1, 3, 4)
+# offset_preds.unsqueeze(0): (1, 16)
+# anchors.unsqueeze(0): (1, 4, 4)
 output = common.multibox_detection(cls_probs.unsqueeze(dim=0),
                             offset_preds.unsqueeze(dim=0),
                             anchors.unsqueeze(dim=0),
                             nms_threshold=0.5)
-print("f{output}")
+print(f"检测结果：\n{output}")
 
 plt.figure(figsize=(5, 3)) # 创建新画布
 fig = plt.imshow(img)
-for i in output[0].detach().numpy():
-    if i[0] == -1:
+# 遍历输出结果，绘制检测框
+for i in output[0].detach().numpy():  # 处理第一张图像
+    if i[0] == -1:  # 跳过背景类
         continue
+    # 构造标签：'dog=0.9' 或 'cat=0.9'
     label = ('dog=', 'cat=')[int(i[0])] + str(i[1])
+    # 绘制检测框：i[2:]是边界框坐标
     common.show_bboxes(fig.axes, [torch.tensor(i[2:]) * bbox_scale], label)
 
 
