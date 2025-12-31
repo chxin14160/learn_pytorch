@@ -309,7 +309,28 @@ common.show_bboxes(fig.axes,  # 图像所在的坐标轴对象
              's=0.75, r=0.5'])
 
 
+# 狗0和猫1的真实边界框（左上xy，右下xy）
+ground_truth = torch.tensor([[0, 0.1, 0.08, 0.52, 0.92],
+                         [1, 0.55, 0.2, 0.9, 0.88]])
+# 五个锚框
+anchors = torch.tensor([[0, 0.1, 0.2, 0.3], [0.15, 0.2, 0.4, 0.4],
+                    [0.63, 0.05, 0.88, 0.98], [0.66, 0.45, 0.8, 0.8],
+                    [0.57, 0.3, 0.92, 0.9]])
+# 绘制真实边界框和锚框
+plt.figure(figsize=(5, 3)) # 创建新画布
+fig = plt.imshow(img)
+common.show_bboxes(fig.axes, ground_truth[:, 1:] * bbox_scale, ['dog', 'cat'], 'k')
+common.show_bboxes(fig.axes, anchors * bbox_scale, ['0', '1', '2', '3', '4'])
 
+# 根据狗和猫的真实边界框，标注锚框的分类和偏移量。（传入前先添加批次维度）
+labels = common.multibox_target(anchors.unsqueeze(dim=0),
+                                ground_truth.unsqueeze(dim=0))
+# labels = common.multibox_target(anchors,
+#                                 ground_truth)
+
+print(f"分类标签 (cls_labels)：\n{labels[2]}")
+print(f"掩码矩阵（mask）：\n{labels[1]}")
+print(f"边界框偏移量 (bbox_offset)：\n{labels[0]}")
 
 
 
