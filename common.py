@@ -1582,8 +1582,14 @@ def assign_anchor_to_bbox(ground_truth, anchors, device, iou_threshold=0.5):
         # 分配和更新
         anchors_bbox_map[anc_idx] = box_idx # 分配真实框
         # 设为-1确保被丢弃位置不会被再次选中
-        jaccard[:, box_idx] = col_discard   # 丢弃该列（设为-1）
-        jaccard[anc_idx, :] = row_discard   # 丢弃该行（设为-1）
+        # 下面两行可能会因维度不匹配而报错
+        # jaccard[:, box_idx] = col_discard   # 丢弃该列（设为-1）
+        # jaccard[anc_idx, :] = row_discard   # 丢弃该行（设为-1）
+        mask = torch.ones_like(jaccard) * -1 # 创建一个与jaccard同形状的全1张量，*-1得到全-1矩阵
+        mask[:, box_idx] = 1 # 将指定列的所有元素设为1
+        mask[anc_idx, :] = 1 # 将指定行的所有元素设为1
+        jaccard = jaccard * mask    # 利用掩码实现丢弃效果
+        jaccard[jaccard < 0] = -1   # 将所有小于0的值统一设为-1，确保被"丢弃"的位置都是-1，便于后续argmax找到max
     return anchors_bbox_map
 
 
@@ -1676,10 +1682,10 @@ def multibox_target(anchors, labels):
         # label[bb_idx, 0]：获取真实框的类别ID
         # +1：类别ID+1，因为0被保留给背景类
         # 例如：真实类别[0, 1, 2] → 锚框标签[1, 2, 3]
-        class_labels[indices_true] = label[bb_idx, 0].long() + 1
+        class_labels[indices_true] = label[bb_idx, 0].long() + 1 # 锚框对应的类别标签
         # 4、设置边界框坐标：成功分配到真实框的锚框，对应设置真实框的标签的坐标信息
         # 获取真实框的坐标部分 [x_min, y_min, x_max, y_max]
-        assigned_bb[indices_true] = label[bb_idx, 1:]
+        assigned_bb[indices_true] = label[bb_idx, 1:] # 锚框对应的真实边框信息
 
         # 偏移量转换：获取锚框相对于 对应真实框的偏移值，再利用掩码只保留非背景类(成功被分配真实框)的锚框 的偏移量
         # offset_boxes(anchors, assigned_bb)：计算所有锚框到其分配的真实框的偏移量
@@ -1688,13 +1694,14 @@ def multibox_target(anchors, labels):
         final_offset = computed_offset     # 对于被分配的锚框 (bbox_mask = 1)
         final_offset = computed_offset * 0 # 对于未分配的锚框 (bbox_mask = 0)  
         '''
-        offset = offset_boxes(anchors, assigned_bb) * bbox_mask
+        offset = offset_boxes(anchors, assigned_bb) * bbox_mask # 与掩码相乘是为了只保留有效(成功被分配到真实框)的锚框偏移量
 
         # 收集批次结果  .reshape(-1)展平为一维向量
         batch_offset.append(offset.reshape(-1))  # 形状 (4*N,)，.reshape(-1)从(N, 4)→(4*N,)
         batch_mask.append(bbox_mask.reshape(-1)) # 形状 (4*N,)，.reshape(-1)从(N, 4)→(4*N,)
         batch_class_labels.append(class_labels)  # 形状 (N,)
     # 堆叠批次数据
+    # .stack() 沿新维度堆叠张量 (维度会增加)
     bbox_offset = torch.stack(batch_offset)  # 形状 (batch_size, 4*N)
     bbox_mask = torch.stack(batch_mask)  # 形状 (batch_size, 4*N)
     class_labels = torch.stack(batch_class_labels)  # 形状 (batch_size, N)
